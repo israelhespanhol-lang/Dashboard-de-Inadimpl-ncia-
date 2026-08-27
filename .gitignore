@@ -1,0 +1,23 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies & Build
+node_modules/
+dist/
+build/
+
+# Netlify & Deployment bundles
+.netlify/
+.netlify-package/
+*.zip
+
+# Temporary & Cache files
+.codex-tmp-*/
+.tmp-*/
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db

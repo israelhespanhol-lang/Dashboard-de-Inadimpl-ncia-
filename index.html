@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; form-action 'self'; base-uri 'self'" />
+  <title>Compo Expert | Dashboard de Inadimplência</title>
+  <link rel="stylesheet" href="./style.css?v=20260826-5" />
+</head>
+<body>
+  <div class="top-strip">
+    <div class="wrap top-strip__content">
+      <span>🇧🇷 Brasil (Português)</span>
+      <strong>EXPERTS FOR GROWTH</strong>
+    </div>
+  </div>
+
+  <header class="header">
+    <div class="wrap header__content">
+      <a class="brand" href="#">
+        <img src="./assets/compo-expert-logo.svg" alt="Compo Expert" />
+      </a>
+
+      <nav class="nav" aria-label="Menu principal">
+        <a href="#visao">Visão geral</a>
+        <a href="#evolucao">Evolução</a>
+        <a href="#taxa">Taxa</a>
+        <a href="#situacao">Situação atual</a>
+        <a href="#aging">Aging</a>
+        <a href="#gestores">Gestores</a>
+        <a href="#monitor-empresarial">Monitoramento empresarial</a>
+        <a href="#monitor-rj">Consulta cadastral</a>
+        <a href="#detalhes">Detalhes</a>
+        <a href="#importar">Importar</a>
+      </nav>
+
+      <div class="search">
+        <span>⌕</span>
+        <input id="globalSearch" type="search" placeholder="Pesquisar cliente..." />
+      </div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="hero__bg"></div>
+    <div class="wrap hero__content">
+      <div class="hero__text">
+        <p class="eyebrow">Serviços — Financeiro e Crédito</p>
+        <h1>Dashboard automatizado de inadimplência</h1>
+        <p class="lead">Visão executiva da carteira em aberto e dos títulos inadimplentes, com acompanhamento por cliente, vendedor, aging, vencimento e tratativas de cobrança.</p>
+        <div class="hero__actions">
+          <button class="btn btn--primary" id="exportBtn" type="button">Exportar visão</button>
+          <button class="btn btn--ghost" id="resetBtn" type="button">Limpar filtros</button>
+        </div>
+      </div>
+
+      <aside class="hero-card" aria-label="Resumo financeiro">
+        <span class="hero-card__label">Risco consolidado</span>
+        <strong id="heroRisk">R$ 0</strong>
+        <small id="baseUpdated">Base inicial</small>
+        <div class="mini-bars">
+          <span style="height:34%"></span>
+          <span style="height:48%"></span>
+          <span style="height:42%"></span>
+          <span style="height:70%"></span>
+          <span style="height:62%"></span>
+          <span style="height:88%"></span>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <main class="wrap main">
+    <section class="card import-card" id="importar">
+      <div class="section-title">
+        <div>
+          <span class="section-kicker">Atualização da base</span>
+          <h2>Importar histórico de pastas</h2>
+        </div>
+        <button class="btn btn--outline" id="templateBtn" type="button">Baixar modelo CSV</button>
+      </div>
+
+      <div class="import-layout">
+        <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Selecionar arquivo para importar">
+          <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" webkitdirectory directory multiple hidden />
+          <span class="upload-icon" aria-hidden="true">⇧</span>
+          <strong>Selecione a pasta INADIMPLENCIA</strong>
+          <p>O app percorre as pastas de ano e mês sem enviar os arquivos</p>
+          <span class="file-types">Processamento 100% local • nada sai do navegador</span>
+        </div>
+
+        <aside class="import-guide">
+          <span class="section-kicker">Colunas esperadas</span>
+          <p>Use a pasta raiz que contém subpastas como 2025, 2026 e, dentro delas, os meses com os arquivos diários.</p>
+          <div class="guide-tags">
+            <span>✓ Detecta ano e mês</span>
+            <span>✓ Evita somar snapshots repetidos</span>
+            <span>✓ Mantém histórico consolidado</span>
+            <span>✓ Conexões externas bloqueadas</span>
+          </div>
+        </aside>
+      </div>
+
+      <div class="import-feedback" id="importFeedback" hidden>
+        <div class="file-summary">
+          <div>
+            <span class="file-badge">XLS</span>
+            <div><strong id="fileName">arquivo.xlsx</strong><small id="fileMeta">0 registros encontrados</small></div>
+          </div>
+          <button class="remove-file" id="removeFileBtn" type="button" aria-label="Remover arquivo">×</button>
+        </div>
+        <div class="validation-message" id="validationMessage"></div>
+        <div class="preview-wrap" id="previewWrap" hidden>
+          <div class="preview-head"><strong>Prévia do arquivo mais recente</strong><span>Primeiros 5 registros</span></div>
+          <div class="table-wrap">
+            <table class="preview-table">
+              <thead id="previewHead"></thead>
+              <tbody id="previewBody"></tbody>
+            </table>
+          </div>
+          <div class="import-actions">
+            <button class="btn btn--light" id="cancelImportBtn" type="button">Cancelar</button>
+            <button class="btn btn--primary" id="applyImportBtn" type="button">Compilar histórico</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="filters card" id="visao">
+      <div class="section-title">
+        <div>
+          <span class="section-kicker">Filtros dinâmicos</span>
+          <h2>Parâmetros da consulta</h2>
+        </div>
+        <p>Todos os indicadores abaixo reagem aos filtros aplicados.</p>
+      </div>
+
+      <div class="filter-grid">
+        <label>Cliente
+          <select id="clienteFilter"></select>
+        </label>
+        <label>Vendedor
+          <select id="gestorFilter"></select>
+        </label>
+        <label>Status
+          <select id="statusFilter"></select>
+        </label>
+        <label>Ano
+          <details class="year-select" id="yearFilter">
+            <summary id="yearSummary">Todos os anos</summary>
+            <div class="year-options" id="yearOptions"></div>
+          </details>
+        </label>
+        <label>Período
+          <select id="periodoFilter">
+            <option value="12">Últimos 12 meses</option>
+            <option value="6">Últimos 6 meses</option>
+            <option value="3">Últimos 3 meses</option>
+            <option value="0">Todo o período selecionado</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="kpi-grid" aria-label="Indicadores principais">
+      <article class="kpi-card">
+        <small>Total em aberto</small>
+        <strong id="kpiSaldo">R$ 0</strong>
+        <span id="kpiSaldoDelta">—</span>
+      </article>
+      <article class="kpi-card">
+        <small>Total inadimplente</small>
+        <strong id="kpiIndice">R$ 0</strong>
+        <span id="kpiIndiceDelta">—</span>
+      </article>
+      <article class="kpi-card">
+        <small>Clientes em atraso</small>
+        <strong id="kpiClientes">0</strong>
+        <span id="kpiClientesDelta">—</span>
+      </article>
+      <article class="kpi-card kpi-card--danger">
+        <small>Acima de 90 dias</small>
+        <strong id="kpi90">R$ 0</strong>
+        <span>Carteira crítica</span>
+      </article>
+    </section>
+
+    <section id="evolucao">
+      <article class="card chart-card chart-card--large financial-history-card">
+        <div class="card-head">
+          <div>
+            <span class="section-kicker">Histórico financeiro</span>
+            <h2>Evolução mensal dos valores em aberto e em atraso</h2>
+            <p class="chart-description">Compare o saldo total em aberto com o valor vencido registrado em cada mês.</p>
+          </div>
+        </div>
+        <div class="interactive-chart">
+          <canvas id="financialHistoryChart" width="1280" height="390"></canvas>
+          <div class="chart-tooltip" id="financialHistoryTooltip" hidden></div>
+        </div>
+        <div class="chart-legend">
+          <span><i style="background:#245a24"></i>Total em aberto</span>
+          <span><i style="background:#64b32e"></i>Total em atraso</span>
+          <span class="legend-note">Use o filtro de cliente para consultar seu histórico</span>
+        </div>
+      </article>
+    </section>
+
+    <section class="rate-layout" id="taxa">
+      <article class="card chart-card rate-chart-card">
+        <div class="card-head simple">
+          <div>
+            <span class="section-kicker">Taxa de inadimplência</span>
+            <h2>Total inadimplente ÷ total em aberto</h2>
+          </div>
+          <span class="pill" id="rateCurrent">Atual: —</span>
+        </div>
+        <canvas id="rateChart" width="900" height="320"></canvas>
+        <div class="chart-legend rate-legend">
+          <span><i style="background:#64b32e"></i>Evolução da taxa</span>
+          <span><i style="background:#c64444"></i>Pico máximo</span>
+          <span><i style="background:#245a24"></i>Pico mínimo</span>
+        </div>
+      </article>
+      <aside class="card rate-summary">
+        <span class="section-kicker">Destaques do período</span>
+        <div class="rate-stat rate-stat--max">
+          <small>Pico máximo</small>
+          <strong id="rateMax">—</strong>
+          <span id="rateMaxDate">—</span>
+        </div>
+        <div class="rate-stat rate-stat--min">
+          <small>Pico mínimo</small>
+          <strong id="rateMin">—</strong>
+          <span id="rateMinDate">—</span>
+        </div>
+        <p>Percentual do saldo total em aberto que já está inadimplente no período selecionado.</p>
+      </aside>
+    </section>
+
+    <section class="evolution-layout" id="situacao">
+      <article class="card chart-card chart-card--large">
+        <div class="card-head">
+          <div>
+            <span class="section-kicker">Situação atualizada</span>
+            <h2>Distribuição da inadimplência atual por mês de vencimento</h2>
+            <p class="chart-description">Os valores que estão atrasados hoje venceram em quais meses?</p>
+          </div>
+        </div>
+        <div class="interactive-chart">
+          <canvas id="evolutionChart" width="980" height="360"></canvas>
+          <div class="chart-tooltip" id="evolutionTooltip" hidden></div>
+        </div>
+        <div class="chart-legend" id="evolutionLegend"></div>
+      </article>
+
+      <aside class="insights card">
+        <span class="section-kicker">Leitura executiva</span>
+        <h3>Análise automática</h3>
+        <div class="insight-list">
+          <div><small>Acima de 90 dias</small><strong id="trendText">—</strong></div>
+          <div><small>Pico de dias em atraso</small><strong id="peakText">—</strong></div>
+          <div><small>Saldo acima de 90 dias</small><strong id="forecastText">—</strong></div>
+          <div><small>Concentração de risco</small><strong id="riskText">—</strong></div>
+        </div>
+        <p id="executiveSummary" class="summary-text"></p>
+      </aside>
+    </section>
+
+    <section class="analytics-grid">
+      <article class="card" id="aging">
+        <div class="card-head simple">
+          <div>
+            <span class="section-kicker">Aging</span>
+            <h2>Faixas de atraso</h2>
+          </div>
+        </div>
+        <canvas id="agingChart" width="620" height="300"></canvas>
+      </article>
+
+      <article class="card">
+        <div class="card-head simple">
+          <div>
+          <span class="section-kicker">Vendedores</span>
+            <h2>Saldo por vendedor</h2>
+          </div>
+        </div>
+        <canvas id="regionChart" width="620" height="300"></canvas>
+      </article>
+
+      <article class="card" id="gestores">
+        <div class="card-head simple">
+          <div>
+            <span class="section-kicker">Gestores</span>
+            <h2>Performance por gestor</h2>
+          </div>
+        </div>
+        <div class="manager-list" id="managerList"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-head simple">
+          <div>
+          <span class="section-kicker">Maiores saldos</span>
+          <h2>Top 5 exposição</h2>
+          </div>
+        </div>
+        <div class="ranking" id="rankingList"></div>
+      </article>
+    </section>
+
+    <section class="legal-module" id="monitor-empresarial">
+      <div class="legal-hero">
+        <div><span class="section-kicker">Radar de risco empresarial</span><h2>Monitoramento Empresarial</h2><p>Acompanhe empresas, processos públicos, alertas e a composição do risco em um só lugar.</p></div>
+        <div class="legal-actions">
+          <input id="legalImportInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          <button class="secondary-btn" id="legalImportBtn" type="button">Importar empresas</button>
+          <button class="danger-btn" id="legalClearBtn" type="button">Limpar base</button>
+          <button class="secondary-btn" id="legalMockBtn" type="button">Carregar demonstração</button>
+          <button class="primary-btn" id="legalCheckBtn" type="button">Pesquisar em todo o Brasil</button>
+          <button class="primary-btn" id="legalAddBtn" type="button">+ Nova empresa</button>
+        </div>
+      </div>
+      <nav class="legal-tabs" aria-label="Seções do monitoramento">
+        <button class="active" data-legal-tab="dashboard">Dashboard</button><button data-legal-tab="companies">Empresas monitoradas</button><button data-legal-tab="alerts">Alertas</button><button data-legal-tab="cases">Processos encontrados</button><button data-legal-tab="history">Histórico</button><button data-legal-tab="settings">Configurações</button>
+      </nav>
+      <div class="legal-feedback" id="legalFeedback" hidden></div>
+      <div class="legal-pane active" data-legal-pane="dashboard">
+        <div class="legal-kpis" id="legalKpis"></div>
+        <div class="legal-dashboard-grid">
+          <article class="legal-panel"><div class="legal-panel-head"><div><span class="section-kicker">Carteira monitorada</span><h3>Distribuição de risco</h3></div></div><div id="legalRiskBars" class="legal-risk-bars"></div><p class="legal-disclaimer">“Sem alertas” não significa ausência de processos. Empresas sem uma fonte capaz de pesquisar partes por CNPJ ficam como “Não verificadas”. Este indicador é apenas apoio à análise.</p></article>
+          <article class="legal-panel"><div class="legal-panel-head"><div><span class="section-kicker">Atualizações</span><h3>Últimos alertas</h3></div></div><div id="legalLatestAlerts"></div></article>
+        </div>
+      </div>
+      <div class="legal-pane" data-legal-pane="companies">
+        <div class="legal-filters"><input id="legalSearch" placeholder="Buscar nome, fantasia ou CNPJ"><select id="legalRiskFilter"><option value="">Todos os riscos</option><option>Baixo</option><option>Atenção</option><option>Moderado</option><option>Alto</option><option>Crítico</option></select><select id="legalAlertFilter"><option value="">Com ou sem alerta</option><option value="with">Com alerta</option><option value="without">Sem alerta</option></select></div>
+        <div class="table-wrap"><table class="legal-table"><thead><tr><th>Empresa</th><th>CNPJ</th><th>Localização</th><th>Score</th><th>Risco</th><th>Alertas</th><th>Ações</th></tr></thead><tbody id="legalCompaniesTable"></tbody></table></div>
+      </div>
+      <div class="legal-pane" data-legal-pane="alerts"><div class="table-wrap"><table class="legal-table"><thead><tr><th>Empresa</th><th>Evento</th><th>Tribunal</th><th>Data</th><th>Nível</th><th>Status</th><th>Ação</th></tr></thead><tbody id="legalAlertsTable"></tbody></table></div></div>
+      <div class="legal-pane" data-legal-pane="cases"><div class="table-wrap"><table class="legal-table"><thead><tr><th>Processo</th><th>Empresa</th><th>Tribunal</th><th>Classe/assunto</th><th>Distribuição</th><th>Fonte</th></tr></thead><tbody id="legalCasesTable"></tbody></table></div></div>
+      <div class="legal-pane" data-legal-pane="history"><div id="legalHistory" class="legal-timeline"></div></div>
+      <div class="legal-pane" data-legal-pane="settings"><div class="legal-settings"><label>Periodicidade<select id="legalFrequency"><option value="manual">Manual</option><option value="6h">A cada 6 horas</option><option value="12h">A cada 12 horas</option><option value="daily">Diariamente</option></select></label><label>Tribunal para detalhamento DataJud<select id="legalTribunal"><option value="tjsp">TJSP</option><option value="tjmg">TJMG</option><option value="tjpr">TJPR</option><option value="tjsc">TJSC</option><option value="tjrs">TJRS</option><option value="tjgo">TJGO</option><option value="tjba">TJBA</option><option value="tjpe">TJPE</option><option value="tjce">TJCE</option><option value="tjrj">TJRJ</option><option value="tjdft">TJDFT</option></select></label><p><strong>Camada gratuita:</strong> DJEN/CNJ para pesquisar comunicações nacionais pelo nome da parte, sem chave. Correspondências sem CNPJ exigem revisão e não alteram o score. <strong>Complemento:</strong> DataJud para processos conhecidos. Se futuramente houver `ESCAVADOR_API_TOKEN`, a busca exata por CNPJ será usada automaticamente.</p></div></div>
+    </section>
+
+    <dialog class="legal-dialog" id="legalCompanyDialog"><form id="legalCompanyForm" method="dialog"><div class="dialog-head"><div><span class="section-kicker">Cadastro monitorado</span><h3 id="legalDialogTitle">Nova empresa</h3></div><button type="button" id="legalDialogClose" aria-label="Fechar">×</button></div><input type="hidden" name="id"><div class="legal-form-grid"><label>Razão Social*<input name="razaoSocial" required></label><label>Nome Fantasia<input name="nomeFantasia"></label><label>CNPJ*<input name="cnpj" required maxlength="18"></label><label>Estado<input name="estado" maxlength="2"></label><label>Cidade<input name="cidade"></label><label>Segmento<input name="segmento"></label><label>Nome interno/apelido<input name="apelido"></label><label>Status do cliente<select name="status"><option>ATIVO</option><option>INATIVO</option><option>PROSPECT</option></select></label><label class="wide">Aliases, separados por vírgula<input name="aliases"></label><label class="wide">Observações<textarea name="observacoes" rows="3"></textarea></label><label class="check-label"><input name="monitoramentoAtivo" type="checkbox" checked> Monitoramento ativo</label></div><div class="dialog-actions"><button type="button" class="secondary-btn" id="legalCancelBtn">Cancelar</button><button type="submit" class="primary-btn">Salvar empresa</button></div></form></dialog>
+    <dialog class="legal-dialog legal-detail-dialog" id="legalDetailDialog"><div id="legalCompanyDetail"></div><div class="dialog-actions"><button type="button" class="primary-btn" id="legalDetailClose">Fechar</button></div></dialog>
+
+    <section class="card rj-monitor" id="monitor-rj">
+      <div class="card-head">
+        <div>
+          <span class="section-kicker">Monitoramento preventivo</span>
+          <h2>Clientes com possível recuperação judicial</h2>
+          <p class="chart-description">Consulte automaticamente a situação especial registrada para o CNPJ. Somente o CNPJ é enviado à API.</p>
+        </div>
+        <div class="rj-actions">
+          <input id="customerRegistryInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          <button class="registry-import-btn" id="importCustomerRegistryBtn" type="button">Importar planilha de clientes</button>
+          <button class="official-search-link api-check-btn" id="checkAllRJBtn" type="button">Verificar clientes com CNPJ</button>
+          <span class="pill" id="rjMonitorCount">0 clientes</span>
+        </div>
+      </div>
+      <div class="rj-planning-panel">
+        <div class="rj-scope-control">
+          <label for="rjScopeSelect">Quem deve ser consultado</label>
+          <select id="rjScopeSelect">
+            <option value="financial">Somente clientes com saldo em aberto (recomendado)</option>
+            <option value="all">Todos os clientes cadastrados</option>
+          </select>
+          <small id="rjRegistryStatus">Importe a planilha cadastral para cruzar os CNPJs com a carteira financeira.</small>
+        </div>
+        <div class="rj-estimate-card recommended"><small>Com vínculo financeiro</small><strong id="rjFinancialEstimate">Calculando…</strong><span id="rjFinancialEstimateDetail">Prioridade recomendada</span></div>
+        <div class="rj-estimate-card"><small>Base cadastral completa</small><strong id="rjAllEstimate">Importe a planilha</strong><span id="rjAllEstimateDetail">Limite de 5 consultas por minuto</span></div>
+      </div>
+      <div class="rj-summary-grid">
+        <div><small>Sinalizados na planilha</small><strong id="rjFlaggedCount">0</strong></div>
+        <div><small>Aguardando consulta</small><strong id="rjPendingCount">0</strong></div>
+        <div><small>Sem CNPJ informado</small><strong id="rjMissingCnpjCount">0</strong></div>
+      </div>
+      <div class="table-wrap">
+        <table class="rj-table">
+          <thead><tr><th>Cliente</th><th>CNPJ</th><th>Exposição atual</th><th>Situação</th><th>Verificação</th></tr></thead>
+          <tbody id="rjMonitorTable"></tbody>
+        </table>
+      </div>
+      <p class="rj-disclaimer">A consulta automática verifica a situação especial cadastral. Use a consulta oficial do CNJ como confirmação jurídica complementar.</p>
+    </section>
+
+    <section class="card detail-card" id="detalhes">
+      <div class="card-head simple">
+        <div>
+          <span class="section-kicker">Detalhamento</span>
+          <h2>Títulos em aberto</h2>
+        </div>
+        <span class="pill" id="rowCount">0 registros</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Cód. PN</th>
+              <th>Vendedor</th>
+              <th>Documento</th>
+              <th>NF</th>
+              <th>Vencimento</th>
+              <th>Aging</th>
+              <th>Dias</th>
+              <th>Valor</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="detailTable"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Interface demonstrativa em HTML, CSS e JavaScript separados — pronta para evoluir com API, banco de dados ou Power BI Embedded.
+  </footer>
+
+  <script src="./assets/xlsx.mini.min.js?v=20260825-3"></script>
+  <script src="./assets/base_inadimplencia.js?v=20260825-7"></script>
+  <script src="./assets/legal-core.js?v=20260826-2"></script>
+  <script src="./script.js?v=20260826-11"></script>
+  <script src="./legal-monitor.js?v=20260826-6"></script>
+</body>
+</html>

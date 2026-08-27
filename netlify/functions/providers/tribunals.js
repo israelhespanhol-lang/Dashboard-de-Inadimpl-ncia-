@@ -1,0 +1,3 @@
+const TRIBUNALS={tjsp:'api_publica_tjsp',tjmg:'api_publica_tjmg',tjrj:'api_publica_tjrj',tjpr:'api_publica_tjpr',tjsc:'api_publica_tjsc',tjrs:'api_publica_tjrs',tjgo:'api_publica_tjgo',tjba:'api_publica_tjba',tjpe:'api_publica_tjpe',tjce:'api_publica_tjce',tjdft:'api_publica_tjdft',trf1:'api_publica_trf1',trf2:'api_publica_trf2',trf3:'api_publica_trf3',trf4:'api_publica_trf4',trf5:'api_publica_trf5',trf6:'api_publica_trf6',stj:'api_publica_stj'};
+function endpointFor(code){const alias=TRIBUNALS[String(code||'').toLowerCase()];return alias?`https://api-publica.datajud.cnj.jus.br/${alias}/_search`:null;}
+module.exports={TRIBUNALS,endpointFor};

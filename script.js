@@ -1,0 +1,1203 @@
+const fmtMoney = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL', maximumFractionDigits:0 });
+const fmtMoneyFull = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL', minimumFractionDigits:2, maximumFractionDigits:2 });
+const fmtDate = new Intl.DateTimeFormat('pt-BR');
+const fmtOneDecimal = new Intl.NumberFormat('pt-BR', { maximumFractionDigits:1 });
+const colors = { green:'#64b32e', dark:'#245a24', soft:'#dcedd3', danger:'#c64444', grid:'#e6eee1', muted:'#667366' };
+const $ = id => document.getElementById(id);
+
+const state = {
+  pendingImport: null,
+  allOpenRows: [],
+  overdueRows: [],
+  analysis: {},
+  history: [],
+  selectedYears: new Set(),
+  rjChecks: new Map(),
+  rjLoading: new Set(),
+  customerRegistry: [],
+  rjScope: 'financial',
+  sourceFile: '',
+  updatedAt: ''
+};
+
+const importFields = [
+  { key:'codigo', label:'Código PN', aliases:['codigo pn','código pn','codigo','cod pn','cod'] },
+  { key:'cnpj', label:'CNPJ', aliases:['cnpj','cpf/cnpj','cpf cnpj','documento fiscal','doc fiscal'] },
+  { key:'cliente', label:'Razão Social', aliases:['razao social','razão social','cliente','nome do cliente','nome'] },
+  { key:'documento', label:'Nº Documento', aliases:['no.docto.','nº documento','no documento','documento','doc'] },
+  { key:'nf', label:'Nº NF', aliases:['no. nf','nº nf','no nf','nf','nota fiscal'] },
+  { key:'emissao', label:'Emissão', aliases:['emissao','emissão','data emissao','data emissão'] },
+  { key:'vencimento', label:'Vencimento', aliases:['vencimento','data vencimento','dt vencimento'] },
+  { key:'valor', label:'Valor R$', aliases:['valor r$','valor','saldo','valor em aberto','saldo em aberto'] },
+  { key:'dias', label:'Dias Atraso', aliases:['dias atraso','dias em atraso','dias'] },
+  { key:'observacoes', label:'Observações', aliases:['observacoes','observações','obs','motivo'] },
+  { key:'gestor', label:'Vendedor', aliases:['vendedor','gestor','responsavel','responsável'] }
+];
+
+function normalizeHeader(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+function parseMoney(value) {
+  if (typeof value === 'number' && !Number.isNaN(value)) return value;
+  const clean = String(value || '').replace(/R\$/gi,'').replace(/\s/g,'');
+  return clean ? Number(clean.includes(',') ? clean.replace(/\./g,'').replace(',','.') : clean) : NaN;
+}
+
+function toIsoDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0,10);
+  if (typeof value === 'number' && window.XLSX?.SSF) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2,'0')}-${String(parsed.d).padStart(2,'0')}`;
+  }
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0,10);
+  const br = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  return br ? `${br[3]}-${br[2].padStart(2,'0')}-${br[1].padStart(2,'0')}` : text;
+}
+
+function showDate(value) {
+  if (!value) return '—';
+  const str = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const [y, m, d] = str.slice(0,10).split('-');
+    return `${d}/${m}/${y}`;
+  }
+  const date = new Date(`${str}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? str : fmtDate.format(date);
+}
+
+function agingFromDays(days) {
+  const d = Number(days) || 0;
+  return d <= 0 ? 'A vencer' : d <= 30 ? '0-30' : d <= 60 ? '31-60' : d <= 90 ? '61-90' : '+90';
+}
+
+function statusFromRow(row, extra={}) {
+  const context = normalizeHeader([row.observacoes, extra.cobranca, extra.negociacao, extra.providencia].filter(Boolean).join(' '));
+  if (context.includes('recuperacao judicial') || context.includes('em recuperacao') || /\brj\b/.test(context)) return 'RECUPERAÇÃO JUDICIAL';
+  return Number(row.dias) > 0 ? 'EM ATRASO' : 'EM DIA';
+}
+
+function enrichRow(row, analysis={}) {
+  const extra = analysis[row.cliente] || {};
+  return { ...row, ...extra, aging: agingFromDays(Number(row.dias)), status: statusFromRow(row, extra) };
+}
+
+function sum(values) {
+  return values.reduce((a,b) => a + (Number(b) || 0), 0);
+}
+
+function formatAxisMoney(value){
+  const amount = Number(value) || 0;
+  if (Math.abs(amount) >= 1000000) return `R$ ${fmtOneDecimal.format(amount/1000000)} mi`;
+  if (Math.abs(amount) >= 1000) return `R$ ${fmtOneDecimal.format(amount/1000)} mil`;
+  return `R$ ${fmtOneDecimal.format(amount)}`;
+}
+
+function groupBy(rows, field) {
+  const map = new Map();
+  rows.forEach(r => map.set(r[field] || 'Não informado', (map.get(r[field] || 'Não informado') || 0) + (Number(r.valor) || 0)));
+  return [...map.entries()].map(([key, total]) => ({ key, total })).sort((a,b) => b.total - a.total);
+}
+
+function uniqueValues(field) {
+  return ['Todos', ...new Set(state.overdueRows.map(r => r[field]).filter(Boolean))];
+}
+
+function fillSelect(id, values) {
+  const el = $(id);
+  if (!el) return;
+  const current = el.value;
+  el.innerHTML = values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  if (values.includes(current)) el.value = current;
+}
+
+function refreshFilters() {
+  fillSelect('clienteFilter', uniqueValues('cliente'));
+  fillSelect('gestorFilter', uniqueValues('gestor'));
+  fillSelect('statusFilter', uniqueValues('status'));
+}
+
+function availableYears(){
+  return [...new Set(state.history.map(s => String(s.date || '').slice(0,4)).filter(y => /^\d{4}$/.test(y)))].sort((a,b) => b.localeCompare(a));
+}
+
+function updateYearSummary(){
+  const years = availableYears();
+  const selected = [...state.selectedYears].sort((a,b) => b.localeCompare(a));
+  const summary = $('yearSummary');
+  if (!summary) return;
+  summary.textContent = !selected.length || selected.length === years.length
+    ? 'Todos os anos'
+    : selected.length <= 2
+      ? selected.join(' e ')
+      : `${selected.length} anos selecionados`;
+}
+
+function refreshYearFilter(){
+  const years = availableYears();
+  state.selectedYears = new Set();
+  const opts = $('yearOptions');
+  if (!opts) return;
+  opts.innerHTML = `<label><input type="checkbox" data-all checked> Todos os anos</label>${years.map(y => `<label><input type="checkbox" value="${y}"> ${y}</label>`).join('')}`;
+  opts.onchange = event => {
+    const inputs = [...opts.querySelectorAll('input:not([data-all])')];
+    const all = opts.querySelector('[data-all]');
+    if (event.target.hasAttribute('data-all')) {
+      all.checked = true;
+      inputs.forEach(input => { input.checked = false; });
+      state.selectedYears = new Set();
+    } else {
+      all.checked = false;
+      const selected = inputs.filter(input => input.checked).map(input => input.value);
+      if (!selected.length) all.checked = true;
+      state.selectedYears = new Set(selected);
+    }
+    $('periodoFilter').value = '0';
+    updateYearSummary();
+    renderAll();
+  };
+  updateYearSummary();
+}
+
+function currentFilters() {
+  return {
+    cliente: $('clienteFilter')?.value || 'Todos',
+    gestor: $('gestorFilter')?.value || 'Todos',
+    status: $('statusFilter')?.value || 'Todos',
+    periodo: Number($('periodoFilter')?.value || 0),
+    search: ($('globalSearch')?.value || '').trim().toLowerCase()
+  };
+}
+
+function selectedSnapshots(){
+  let snapshots = state.history.filter(s => !state.selectedYears.size || state.selectedYears.has(String(s.date).slice(0,4))).sort((a,b) => a.date.localeCompare(b.date));
+  const months = currentFilters().periodo;
+  if (months && snapshots.length) {
+    const latest = new Date(`${snapshots.at(-1).date}T12:00:00`);
+    const cutoff = new Date(latest.getFullYear(), latest.getMonth() - months + 1, 1);
+    snapshots = snapshots.filter(s => new Date(`${s.date}T12:00:00`) >= cutoff);
+  }
+  return snapshots;
+}
+
+function filterRows(rows){
+  const f = currentFilters();
+  return (rows || []).filter(r => {
+    const cliente = String(r.cliente || '');
+    const codigo = String(r.codigo || '');
+    const matchCliente = f.cliente === 'Todos' || cliente === f.cliente;
+    const matchGestor = f.gestor === 'Todos' || r.gestor === f.gestor;
+    const matchStatus = f.status === 'Todos' || r.status === f.status;
+    const matchSearch = !f.search || cliente.toLowerCase().includes(f.search) || codigo.toLowerCase().includes(f.search);
+    return matchCliente && matchGestor && matchStatus && matchSearch;
+  });
+}
+
+function filteredTitles(){
+  const latest = selectedSnapshots().at(-1);
+  return filterRows(latest?.overdue || state.overdueRows);
+}
+
+function monthKey(value){
+  return /^\d{4}-\d{2}/.test(value || '') ? value.slice(0,7) : 'Sem data';
+}
+
+function monthLabel(key){
+  if (key === 'Sem data') return key;
+  const [year, month] = key.split('-');
+  return `${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][Number(month)-1]}/${year.slice(2)}`;
+}
+
+function evolutionData(){
+  const monthly = new Map();
+  filteredTitles().forEach(row => {
+    const key = monthKey(row.vencimento);
+    const item = monthly.get(key) || { total:0, titles:0 };
+    item.total += (Number(row.valor) || 0);
+    item.titles++;
+    monthly.set(key, item);
+  });
+  const entries = [...monthly.entries()].filter(([key]) => key !== 'Sem data').sort(([a],[b]) => a.localeCompare(b));
+  return {
+    labels: entries.length ? entries.map(([key]) => monthLabel(key)) : ['Sem dados'],
+    values: entries.length ? entries.map(([,item]) => item.total) : [0],
+    titles: entries.length ? entries.map(([,item]) => item.titles) : [0]
+  };
+}
+
+function monthlySnapshots(){
+  const monthly = new Map();
+  selectedSnapshots().forEach(snapshot => {
+    const key = monthKey(snapshot.date);
+    const current = monthly.get(key);
+    if (key !== 'Sem data' && (!current || snapshot.date > current.date)) monthly.set(key, snapshot);
+  });
+  return [...monthly.values()].sort((a,b) => a.date.localeCompare(b.date));
+}
+
+function financialHistoryData(){
+  const snapshots = monthlySnapshots();
+  const labels = snapshots.map(s => monthLabel(monthKey(s.date)));
+  const open = snapshots.map(s => sum(filterRows(s.allOpen || []).map(r => r.valor)));
+  const overdue = snapshots.map(s => sum(filterRows(s.overdue || []).map(r => r.valor)));
+  return {
+    labels: labels.length ? labels : ['Sem dados'],
+    open: open.length ? open : [0],
+    overdue: overdue.length ? overdue : [0]
+  };
+}
+
+function drawAxes(ctx, w, h, p){
+  ctx.strokeStyle = colors.grid;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = p.top + (h - p.top - p.bottom) * i / 4;
+    ctx.beginPath();
+    ctx.moveTo(p.left, y);
+    ctx.lineTo(w - p.right, y);
+    ctx.stroke();
+  }
+}
+
+function prepareCanvas(canvas, defaultW=600, defaultH=300){
+  const baseW = Number(canvas.getAttribute('width')) || defaultW;
+  const baseH = Number(canvas.getAttribute('height')) || defaultH;
+  const ratio = baseH / baseW;
+  const w = canvas.clientWidth > 0 ? canvas.clientWidth : baseW;
+  const h = Math.round(w * ratio);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+
+function drawLineChart(canvas, labels, series, options={}){
+  const { ctx, w, h } = prepareCanvas(canvas, 1280, 390);
+  const p = { left: 86, right: 28, top: 25, bottom: 46 };
+  drawAxes(ctx, w, h, p);
+
+  const rawMax = Math.max(0, ...series.flatMap(s => s.data));
+  const hasValues = rawMax > 0;
+  const max = hasValues ? rawMax * 1.12 : 1;
+  const x = i => p.left + i * (w - p.left - p.right) / Math.max(1, labels.length - 1);
+  const y = v => h - p.bottom - (v / max) * (h - p.top - p.bottom);
+
+  canvas._chartPoints = labels.map((label, i) => ({
+    label,
+    x: x(i),
+    y: y(series[0]?.data[i] || 0),
+    value: series[0]?.data[i] || 0
+  }));
+
+  ctx.font = '12px Arial, sans-serif';
+  ctx.fillStyle = colors.muted;
+  ctx.textAlign = 'right';
+
+  for (let i = 0; i <= 4; i++) {
+    const val = hasValues ? max * (1 - i / 4) : 0;
+    const label = options.percent ? `${(val * 100).toFixed(0)}%` : options.integer ? Math.round(val) : formatAxisMoney(val);
+    ctx.fillText(label, p.left - 10, p.top + (h - p.top - p.bottom) * i / 4 + 4);
+  }
+
+  ctx.textAlign = 'center';
+  const labelStep = Math.max(1, Math.ceil(labels.length / 10));
+  labels.forEach((l, i) => {
+    if (i % labelStep === 0 || i === labels.length - 1) {
+      ctx.fillText(l, x(i), h - 18);
+    }
+  });
+
+  series.forEach(s => {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = s.width || 3;
+    ctx.setLineDash(s.dash || []);
+    ctx.beginPath();
+    s.data.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    s.data.forEach((v, i) => {
+      ctx.beginPath();
+      ctx.fillStyle = s.pointColors?.[i] || s.color;
+      ctx.arc(x(i), y(v), s.pointSizes?.[i] || s.point || 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  });
+}
+
+function drawBarChart(canvas, labels, values, horizontal=false){
+  const { ctx, w, h } = prepareCanvas(canvas, 620, 300);
+  const p = { left: horizontal ? 105 : 55, right: 24, top: 20, bottom: 52 };
+  const rawMax = Math.max(0, ...values);
+  const max = (rawMax > 0 ? rawMax : 1) * 1.15;
+
+  ctx.font = '12px Arial, sans-serif';
+
+  if (horizontal) {
+    const barH = (h - p.top - p.bottom) / Math.max(1, values.length) * 0.58;
+    values.forEach((v, i) => {
+      const y = p.top + i * (h - p.top - p.bottom) / values.length + barH * 0.35;
+      const bw = rawMax > 0 ? (w - p.left - p.right) * v / max : 0;
+      ctx.fillStyle = colors.soft;
+      ctx.fillRect(p.left, y, w - p.left - p.right, barH);
+      ctx.fillStyle = i === values.length - 1 ? colors.danger : colors.green;
+      ctx.fillRect(p.left, y, bw, barH);
+      ctx.fillStyle = colors.muted;
+      ctx.textAlign = 'right';
+      ctx.fillText(labels[i] || '', p.left - 10, y + barH * 0.68);
+      ctx.textAlign = 'left';
+      ctx.fillText(fmtMoney.format(v), p.left + bw + 8, y + barH * 0.68);
+    });
+  } else {
+    const gap = 14;
+    const barW = (w - p.left - p.right - gap * Math.max(0, values.length - 1)) / Math.max(1, values.length);
+    values.forEach((v, i) => {
+      const bh = rawMax > 0 ? (h - p.top - p.bottom) * v / max : 0;
+      const x = p.left + i * (barW + gap);
+      const y = h - p.bottom - bh;
+      ctx.fillStyle = colors.soft;
+      ctx.fillRect(x, p.top, barW, h - p.top - p.bottom);
+      ctx.fillStyle = colors.green;
+      ctx.fillRect(x, y, barW, bh);
+      ctx.fillStyle = colors.muted;
+      ctx.textAlign = 'center';
+      const label = labels[i] || '';
+      ctx.fillText(label.length > 12 ? `${label.slice(0,10)}…` : label, x + barW / 2, h - 20);
+    });
+  }
+}
+
+function renderEvolution(){
+  const data = evolutionData();
+  const canvas = $('evolutionChart');
+  if (!canvas) return;
+  drawLineChart(canvas, data.labels, [{ data: data.values, color: colors.green, width: 4, point: 5 }]);
+  canvas._evolutionTitles = data.titles;
+  if ($('evolutionLegend')) {
+    $('evolutionLegend').innerHTML = `<span><i style="background:${colors.green}"></i>Saldo ainda em aberto</span><span class="legend-note">Passe o mouse pelos pontos para ver os detalhes</span>`;
+  }
+}
+
+function setupEvolutionInteraction(){
+  const canvas = $('evolutionChart');
+  const tooltip = $('evolutionTooltip');
+  if (!canvas || !tooltip) return;
+
+  canvas.addEventListener('mousemove', event => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
+    const points = canvas._chartPoints || [];
+    if (!points.length) {
+      tooltip.hidden = true;
+      return;
+    }
+    const nearest = points.reduce((best, point, index) => {
+      const distance = Math.hypot(point.x - mx, point.y - my);
+      return !best || distance < best.distance ? { point, index, distance } : best;
+    }, null);
+
+    if (!nearest || nearest.distance > 28) {
+      tooltip.hidden = true;
+      return;
+    }
+    const titles = canvas._evolutionTitles?.[nearest.index] || 0;
+    tooltip.innerHTML = `<strong>${nearest.point.label}</strong><span>${fmtMoney.format(nearest.point.value)}</span><small>${titles} título${titles === 1 ? '' : 's'} ainda em aberto</small>`;
+    tooltip.style.left = `${Math.min(rect.width - 190, Math.max(8, nearest.point.x + 12))}px`;
+    tooltip.style.top = `${Math.max(8, nearest.point.y - 78)}px`;
+    tooltip.hidden = false;
+  });
+
+  canvas.addEventListener('mouseleave', () => { tooltip.hidden = true; });
+}
+
+function renderFinancialHistory(){
+  const data = financialHistoryData();
+  const canvas = $('financialHistoryChart');
+  if (!canvas) return;
+  drawLineChart(canvas, data.labels, [
+    { data: data.open, color: colors.dark, width: 4, point: 5 },
+    { data: data.overdue, color: colors.green, width: 4, point: 5 }
+  ]);
+  canvas._financialData = data;
+}
+
+function setupFinancialInteraction(){
+  const canvas = $('financialHistoryChart');
+  const tooltip = $('financialHistoryTooltip');
+  if (!canvas || !tooltip) return;
+
+  canvas.addEventListener('mousemove', event => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = event.clientX - rect.left;
+    const points = canvas._chartPoints || [];
+    if (!points.length) {
+      tooltip.hidden = true;
+      return;
+    }
+    const nearest = points.reduce((best, point, index) => {
+      const distance = Math.abs(point.x - mx);
+      return !best || distance < best.distance ? { point, index, distance } : best;
+    }, null);
+
+    if (!nearest || nearest.distance > 35) {
+      tooltip.hidden = true;
+      return;
+    }
+    const data = canvas._financialData;
+    tooltip.innerHTML = `<strong>${nearest.point.label}</strong><span>Total em aberto: ${fmtMoney.format(data.open[nearest.index])}</span><span>Total em atraso: ${fmtMoney.format(data.overdue[nearest.index])}</span>`;
+    tooltip.style.left = `${Math.min(rect.width - 245, Math.max(8, nearest.point.x + 12))}px`;
+    tooltip.style.top = '34px';
+    tooltip.hidden = false;
+  });
+
+  canvas.addEventListener('mouseleave', () => { tooltip.hidden = true; });
+}
+
+function rateData(){
+  return monthlySnapshots().map(snapshot => {
+    const totalOpen = sum(filterRows(snapshot.allOpen || []).map(r => r.valor));
+    const totalOverdue = sum(filterRows(snapshot.overdue || []).map(r => r.valor));
+    return { ...snapshot, totalOpen, totalOverdue, rate: totalOpen > 0 ? totalOverdue / totalOpen : 0 };
+  }).filter(s => s.totalOpen > 0);
+}
+
+function renderRateChart(){
+  const data = rateData();
+  const format = value => new Intl.NumberFormat('pt-BR', { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2 }).format(value);
+  const canvas = $('rateChart');
+  if (!canvas) return;
+
+  if (!data.length) {
+    drawLineChart(canvas, ['Sem dados'], [{ data:[0], color:colors.green, width:4 }], { percent:true });
+    $('rateCurrent').textContent = 'Atual: —';
+    $('rateMax').textContent = '—';
+    $('rateMin').textContent = '—';
+    $('rateMaxDate').textContent = '—';
+    $('rateMinDate').textContent = '—';
+    return;
+  }
+
+  const max = data.reduce((a,b) => b.rate > a.rate ? b : a);
+  const min = data.reduce((a,b) => b.rate < a.rate ? b : a);
+  const current = data.at(-1);
+  const maxIndex = data.indexOf(max);
+  const minIndex = data.indexOf(min);
+  const pointColors = data.map((_,i) => i === maxIndex ? colors.danger : i === minIndex ? colors.dark : colors.green);
+  const pointSizes = data.map((_,i) => i === maxIndex || i === minIndex ? 7 : 4);
+
+  drawLineChart(canvas, data.map(s => monthLabel(monthKey(s.date))), [{ data: data.map(s => s.rate), color: colors.green, width: 4, pointColors, pointSizes }], { percent: true });
+  $('rateCurrent').textContent = `Atual: ${format(current.rate)}`;
+  $('rateMax').textContent = format(max.rate);
+  $('rateMaxDate').textContent = showDate(max.date);
+  $('rateMin').textContent = format(min.rate);
+  $('rateMinDate').textContent = showDate(min.date);
+}
+
+function renderKpis(){
+  const rows = filteredTitles();
+  const neutral = currentFilters().cliente === 'Todos' && currentFilters().gestor === 'Todos' && currentFilters().status === 'Todos';
+  const latest = selectedSnapshots().at(-1);
+  const openBase = neutral ? (latest?.allOpen || state.allOpenRows) : rows;
+  const openTotal = sum(openBase.map(r => r.valor));
+  const overdue = sum(rows.map(r => r.valor));
+  const crit = sum(rows.filter(r => Number(r.dias) > 90).map(r => r.valor));
+  const clients = new Set(rows.map(r => r.cliente).filter(Boolean)).size;
+
+  $('kpiSaldo').textContent = fmtMoney.format(openTotal);
+  $('kpiIndice').textContent = fmtMoney.format(overdue);
+  $('heroRisk').textContent = fmtMoney.format(overdue);
+  $('kpiClientes').textContent = clients;
+  $('kpi90').textContent = fmtMoney.format(crit);
+  $('kpiSaldoDelta').textContent = `${openBase.length} títulos na carteira`;
+  $('kpiIndiceDelta').textContent = `${rows.length} títulos vencidos`;
+  $('kpiClientesDelta').textContent = 'Clientes com parcelas em atraso';
+}
+
+function renderInsights(){
+  const rows = filteredTitles();
+  const total = sum(rows.map(r => r.valor));
+  const topClient = groupBy(rows, 'cliente')[0] || { key: '—', total: 0 };
+  const maxDays = rows.reduce((m, r) => Math.max(m, Number(r.dias) || 0), 0);
+  const criticalRows = rows.filter(r => Number(r.dias) > 90);
+  const critical = criticalRows.length;
+  const criticalBalance = sum(criticalRows.map(r => r.valor));
+
+  $('trendText').textContent = `${critical} títulos acima de 90 dias`;
+  $('peakText').textContent = `${maxDays} dias de atraso`;
+  $('forecastText').textContent = fmtMoney.format(criticalBalance);
+  $('riskText').textContent = topClient.key !== '—' ? `${topClient.key} • ${formatAxisMoney(topClient.total)}` : '—';
+  $('executiveSummary').textContent = rows.length
+    ? `A seleção soma ${fmtMoney.format(total)} em ${rows.length} títulos inadimplentes. A maior concentração de risco está no cliente ${topClient.key}, com aproximadamente ${formatAxisMoney(topClient.total)}.`
+    : 'Nenhum título inadimplente encontrado para os filtros selecionados.';
+}
+
+function renderSecondaryCharts(){
+  const rows = filteredTitles();
+  const order = ['0-30', '31-60', '61-90', '+90'];
+  const values = order.map(a => sum(rows.filter(r => r.aging === a).map(r => r.valor)));
+  drawBarChart($('agingChart'), order, values, true);
+
+  const vendors = groupBy(rows, 'gestor').slice(0, 6);
+  const vendorLabels = vendors.length ? vendors.map(v => v.key.split(' ')[0]) : ['Nenhum'];
+  const vendorValues = vendors.length ? vendors.map(v => v.total) : [0];
+  drawBarChart($('regionChart'), vendorLabels, vendorValues, false);
+}
+
+function renderManagers(){
+  const rows = filteredTitles();
+  const items = groupBy(rows, 'gestor');
+  const max = Math.max(1, ...items.map(x => x.total));
+  const el = $('managerList');
+  if (!el) return;
+  el.innerHTML = items.length
+    ? items.map(item => `
+        <div class="manager-row">
+          <div>
+            <strong>${escapeHtml(item.key)}</strong>
+            <small>${rows.filter(r => r.gestor === item.key).length} títulos em atraso</small>
+            <div class="progress"><span style="width:${(item.total / max) * 100}%"></span></div>
+          </div>
+          <div class="amount">${fmtMoney.format(item.total)}</div>
+        </div>
+      `).join('')
+    : '<div class="empty-state">Nenhum vendedor encontrado para os filtros selecionados.</div>';
+}
+
+function renderRanking(){
+  const peaks = new Map();
+  const latestInfo = new Map();
+  selectedSnapshots().forEach(snapshot => {
+    const rows = filterRows(snapshot.overdue || []);
+    const totals = groupBy(rows, 'cliente');
+    rows.forEach(row => latestInfo.set(row.cliente, { codigo: row.codigo, gestor: row.gestor, date: snapshot.date }));
+    totals.forEach(item => {
+      const current = peaks.get(item.key);
+      if (!current || item.total > current.total) peaks.set(item.key, { ...item, date: snapshot.date });
+    });
+  });
+
+  const items = [...peaks.values()].sort((a,b) => b.total - a.total).slice(0, 5);
+  const el = $('rankingList');
+  if (!el) return;
+  el.innerHTML = items.length
+    ? items.map((item, i) => {
+        const info = latestInfo.get(item.key) || {};
+        return `
+          <div class="rank-row">
+            <div>
+              <strong>${i + 1}. ${escapeHtml(item.key)}</strong>
+              <small>${escapeHtml(info.codigo || '')} • ${escapeHtml(info.gestor || '—')} • maior saldo em ${showDate(item.date)}</small>
+            </div>
+            <div class="amount">${fmtMoney.format(item.total)}</div>
+          </div>
+        `;
+      }).join('')
+    : '<div class="empty-state">Nenhum cliente inadimplente registrado no período.</div>';
+}
+
+function cleanCnpj(value){
+  return String(value || '').replace(/\D/g,'').slice(0,14);
+}
+
+function showCnpj(value){
+  const cnpj = cleanCnpj(value);
+  return cnpj.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : 'Não informado';
+}
+
+function financialRJClients(){
+  const latest = selectedSnapshots().at(-1);
+  const openRows = latest?.allOpen || state.allOpenRows;
+  const rows = openRows.length ? openRows : (latest?.overdue || state.overdueRows);
+  const clients = new Map();
+
+  rows.forEach(row => {
+    const key = normalizeHeader(row.cliente);
+    const current = clients.get(key) || { cliente: row.cliente, cnpj: cleanCnpj(row.cnpj), total: 0, flagged: false };
+    if (!current.cnpj) current.cnpj = cleanCnpj(row.cnpj);
+    current.total += Number(row.valor) || 0;
+    current.flagged = current.flagged || row.status === 'RECUPERAÇÃO JUDICIAL';
+    clients.set(key, current);
+  });
+  return clients;
+}
+
+function rjMonitorItems(){
+  const financial = financialRJClients();
+  if (!state.customerRegistry.length) return [...financial.values()].sort((a,b) => b.total - a.total);
+  const byCnpj = new Map([...financial.values()].filter(item => item.cnpj.length === 14).map(item => [item.cnpj, item]));
+  return state.customerRegistry.map(customer => {
+    const linked = byCnpj.get(customer.cnpj) || financial.get(normalizeHeader(customer.cliente));
+    return { cliente: customer.cliente, cnpj: customer.cnpj, total: linked?.total || 0, flagged: linked?.flagged || false };
+  }).filter(item => state.rjScope === 'all' || item.total > 0).sort((a,b) => b.total - a.total || a.cliente.localeCompare(b.cliente));
+}
+
+function formatQueryTime(count){
+  if (!count) return '0 min';
+  const minutes = Math.ceil(count / 5);
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return hours ? `≈ ${hours}h${rest ? ` ${rest}min` : ''}` : `≈ ${minutes} min`;
+}
+
+function updateRJEstimates(){
+  const financial = [...financialRJClients().values()];
+  const financialNames = new Set(financial.map(i => normalizeHeader(i.cliente)));
+  const financialValid = new Set(financial.map(i => i.cnpj).filter(c => c.length === 14));
+
+  if (state.customerRegistry.length) {
+    state.customerRegistry.forEach(item => {
+      if (financialNames.has(normalizeHeader(item.cliente)) && item.cnpj.length === 14) {
+        financialValid.add(item.cnpj);
+      }
+    });
+  }
+
+  const allValid = new Set(state.customerRegistry.map(i => i.cnpj).filter(c => c.length === 14));
+  $('rjFinancialEstimate').textContent = `${financialValid.size} CNPJs • ${formatQueryTime(financialValid.size)}`;
+  $('rjFinancialEstimateDetail').textContent = 'Clientes com saldo em aberto na posição atual';
+  $('rjAllEstimate').textContent = state.customerRegistry.length ? `${allValid.size} CNPJs • ${formatQueryTime(allValid.size)}` : 'Importe a planilha';
+  $('rjAllEstimateDetail').textContent = state.customerRegistry.length ? 'Estimativa no limite de 5 consultas por minuto' : 'Limite de 5 consultas por minuto';
+}
+
+function renderRJMonitor(){
+  const items = rjMonitorItems();
+  const flagged = items.filter(i => i.flagged || state.rjChecks.get(i.cnpj)?.isRJ).length;
+  const missing = items.filter(i => i.cnpj.length !== 14).length;
+  const pending = items.filter(i => i.cnpj.length === 14 && !state.rjChecks.has(i.cnpj) && !i.flagged).length;
+
+  updateRJEstimates();
+  $('rjMonitorCount').textContent = `${items.length} cliente${items.length === 1 ? '' : 's'}`;
+  $('rjFlaggedCount').textContent = flagged;
+  $('rjPendingCount').textContent = pending;
+  $('rjMissingCnpjCount').textContent = missing;
+
+  $('rjMonitorTable').innerHTML = items.length
+    ? items.map(item => {
+        const check = state.rjChecks.get(item.cnpj);
+        const loading = state.rjLoading.has(item.cnpj);
+        const isRJ = item.flagged || check?.isRJ;
+        const status = isRJ
+          ? (check?.isRJ ? 'RJ identificada na Receita' : 'Sinalizado na planilha')
+          : check?.specialStatus
+            ? `Situação especial: ${check.specialStatus}`
+            : check
+              ? 'Sem RJ na situação especial'
+              : 'Aguardando verificação';
+        const badge = isRJ ? 'danger' : check?.error ? 'warn' : check ? 'ok' : 'warn';
+
+        return `
+          <tr>
+            <td><strong>${escapeHtml(item.cliente)}</strong></td>
+            <td>${showCnpj(item.cnpj)}</td>
+            <td>${item.total > 0 ? fmtMoney.format(item.total) : 'Sem saldo em aberto'}</td>
+            <td><span class="badge ${badge}">${escapeHtml(status)}</span>${check?.checkedAt ? `<small class="check-date">Consultado em ${escapeHtml(check.checkedAt)}</small>` : ''}</td>
+            <td>
+              ${item.cnpj.length === 14
+                ? `<button class="official-search-link api-check-btn" type="button" data-cnpj="${item.cnpj}" ${loading ? 'disabled' : ''}>${loading ? 'Consultando…' : check ? 'Consultar novamente' : 'Consultar API'}</button><a class="cnj-secondary-link" href="https://consulta-datajud.cnj.jus.br/" target="_blank" rel="noopener noreferrer">CNJ ↗</a>`
+                : '<span class="muted-text">CNPJ ausente ou inválido</span>'}
+            </td>
+          </tr>
+        `;
+      }).join('')
+    : '<tr><td colspan="5" class="empty-table">Nenhum cliente disponível neste critério.</td></tr>';
+}
+
+async function checkRJByCnpj(cnpj){
+  if (state.rjLoading.has(cnpj)) return;
+  state.rjLoading.add(cnpj);
+  renderRJMonitor();
+  try {
+    const response = await fetch('/.netlify/functions/check-rj', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cnpj })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Consulta indisponível.');
+    state.rjChecks.set(cnpj, data);
+  } catch (error) {
+    state.rjChecks.set(cnpj, { isRJ: false, specialStatus: 'Falha na consulta', checkedAt: new Date().toLocaleString('pt-BR'), error: error.message });
+  } finally {
+    state.rjLoading.delete(cnpj);
+    renderRJMonitor();
+  }
+}
+
+async function checkAllRJ(){
+  const button = $('checkAllRJBtn');
+  const cnpjs = [...new Set(rjMonitorItems().map(item => item.cnpj).filter(cnpj => cnpj.length === 14 && !state.rjChecks.has(cnpj)))];
+
+  if (!cnpjs.length) {
+    button.textContent = 'Nenhuma consulta pendente';
+    setTimeout(() => { button.textContent = 'Verificar clientes com CNPJ'; }, 1800);
+    return;
+  }
+
+  button.disabled = true;
+  for (let i = 0; i < cnpjs.length; i++) {
+    button.textContent = `Consultando ${i + 1} de ${cnpjs.length}…`;
+    await checkRJByCnpj(cnpjs[i]);
+    if (i < cnpjs.length - 1) await new Promise(resolve => setTimeout(resolve, 12500));
+  }
+  button.disabled = false;
+  button.textContent = 'Verificação concluída';
+  setTimeout(() => { button.textContent = 'Verificar clientes com CNPJ'; }, 2200);
+}
+
+async function importCustomerRegistry(file){
+  const workbook = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
+  let headerRow = -1, cnpjColumn = -1, nameColumn = -1, codeColumn = -1;
+
+  for (let i = 0; i < Math.min(matrix.length, 30); i++) {
+    const headers = matrix[i].map(normalizeHeader);
+    const cnpj = headers.findIndex(h => ['cnpj','cpf/cnpj','cpf cnpj','documento fiscal','doc fiscal'].includes(h));
+    const name = headers.findIndex(h => ['nome do pn','nome do cliente','razao social','razão social','cliente','nome'].includes(h));
+    if (cnpj >= 0 && name >= 0) {
+      headerRow = i;
+      cnpjColumn = cnpj;
+      nameColumn = name;
+      codeColumn = headers.findIndex(h => ['codigo do pn','codigo pn','codigo','cod'].includes(h));
+      break;
+    }
+  }
+
+  if (headerRow < 0) throw new Error('Não foi possível identificar as colunas de Nome do Cliente e CNPJ.');
+  const unique = new Map();
+
+  matrix.slice(headerRow + 1).forEach(row => {
+    const cliente = String(row[nameColumn] || '').trim();
+    const cnpj = cleanCnpj(row[cnpjColumn]);
+    const codigo = codeColumn >= 0 ? String(row[codeColumn] || '').trim() : '';
+    if (!cliente) return;
+    const key = cnpj.length === 14 ? `cnpj:${cnpj}` : `nome:${normalizeHeader(cliente)}`;
+    if (!unique.has(key)) unique.set(key, { cliente, cnpj, codigo });
+  });
+
+  state.customerRegistry = [...unique.values()];
+  const valid = new Set(state.customerRegistry.map(item => item.cnpj).filter(cnpj => cnpj.length === 14));
+  $('rjRegistryStatus').textContent = `${file.name}: ${state.customerRegistry.length} clientes, ${valid.size} CNPJs válidos e únicos.`;
+  renderRJMonitor();
+}
+
+function renderTable(){
+  const rows = filteredTitles();
+  $('rowCount').textContent = `${rows.length} registro${rows.length === 1 ? '' : 's'}`;
+  const el = $('detailTable');
+  if (!el) return;
+  el.innerHTML = rows.length
+    ? rows.map(r => `
+        <tr title="${escapeHtml(r.observacoes || '')}">
+          <td><strong>${escapeHtml(r.cliente)}</strong></td>
+          <td>${escapeHtml(r.codigo || '—')}</td>
+          <td>${escapeHtml(r.gestor || '—')}</td>
+          <td>${escapeHtml(r.documento || '—')}</td>
+          <td>${escapeHtml(r.nf || '—')}</td>
+          <td>${showDate(r.vencimento)}</td>
+          <td>${r.aging}</td>
+          <td>${r.dias}</td>
+          <td>${fmtMoneyFull.format(r.valor)}</td>
+          <td><span class="badge ${r.status === 'RECUPERAÇÃO JUDICIAL' ? 'danger' : r.status === 'EM ATRASO' ? 'warn' : 'ok'}">${r.status}</span></td>
+        </tr>
+      `).join('')
+    : '<tr><td colspan="10" class="empty-table">Nenhum título encontrado para os filtros selecionados.</td></tr>';
+}
+
+function renderAll(){
+  renderKpis();
+  renderFinancialHistory();
+  renderEvolution();
+  renderRateChart();
+  renderInsights();
+  renderSecondaryCharts();
+  renderManagers();
+  renderRanking();
+  renderRJMonitor();
+  renderTable();
+}
+
+function resetFilters(){
+  ['clienteFilter','gestorFilter','statusFilter'].forEach(id => {
+    const el = $(id);
+    if (el) el.value = 'Todos';
+  });
+  if ($('periodoFilter')) $('periodoFilter').value = '12';
+  if ($('globalSearch')) $('globalSearch').value = '';
+  state.selectedYears = new Set();
+  const all = $('yearOptions')?.querySelector('[data-all]');
+  if (all) all.checked = true;
+  [...($('yearOptions')?.querySelectorAll('input:not([data-all])') || [])].forEach(input => { input.checked = false; });
+  updateYearSummary();
+  renderAll();
+}
+
+function exportCsv(){
+  const rows = filteredTitles();
+  const header = importFields.map(f => f.label);
+  const csv = [
+    header.join(';'),
+    ...rows.map(r => importFields.map(f => String(r[f.key] ?? '').replace(/;/g, ',')).join(';'))
+  ].join('\n');
+
+  const blob = new Blob([`\uFEFF${csv}`], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'inadimplentes_filtrados.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function mapSheetRows(rawRows){
+  if (!rawRows.length) throw new Error('A aba da planilha não possui registros.');
+  const headers = Object.keys(rawRows[0]);
+  const map = {};
+  importFields.forEach(f => {
+    const match = headers.find(h => f.aliases.map(normalizeHeader).includes(normalizeHeader(h)));
+    if (match) map[f.key] = match;
+  });
+
+  const required = ['cliente', 'valor', 'dias', 'gestor'];
+  const missing = required.filter(k => !map[k]).map(k => importFields.find(f => f.key === k).label);
+  if (missing.length) throw new Error(`Colunas obrigatórias não encontradas: ${missing.join(', ')}.`);
+
+  return rawRows.map((row, index) => ({
+    codigo: String(row[map.codigo] || '').trim(),
+    cnpj: String(row[map.cnpj] || '').trim(),
+    cliente: String(row[map.cliente] || '').trim(),
+    documento: String(row[map.documento] || '').trim(),
+    nf: String(row[map.nf] || '').trim(),
+    emissao: toIsoDate(row[map.emissao]),
+    vencimento: toIsoDate(row[map.vencimento]),
+    valor: parseMoney(row[map.valor]),
+    dias: Number(row[map.dias]),
+    observacoes: String(row[map.observacoes] || '').trim(),
+    gestor: String(row[map.gestor] || '').trim(),
+    _row: index + 2
+  })).filter(r => r.cliente);
+}
+
+function analysisFromWorkbook(workbook){
+  const name = workbook.SheetNames.find(n => normalizeHeader(n).includes('analise de inadimplencia'));
+  if (!name) return {};
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { range:2, defval:'' });
+  const map = {};
+  rows.forEach(row => {
+    const keys = Object.keys(row);
+    const get = label => row[keys.find(k => normalizeHeader(k) === normalizeHeader(label))] || '';
+    const cliente = String(get('Razão Social') || get('Cliente') || '').trim();
+    if (cliente && !normalizeHeader(cliente).startsWith('total')) {
+      map[cliente] = {
+        gestorAnalise: String(get('VENDEDOR')).trim(),
+        cobranca: String(get('STATUS DA COBRANÇA')).trim(),
+        negociacao: String(get('NEGOCIAÇÃO')).trim(),
+        providencia: String(get('PROVIDENCIA')).trim()
+      };
+    }
+  });
+  return map;
+}
+
+function findSheet(workbook, term){
+  return workbook.SheetNames.find(name => normalizeHeader(name).includes(normalizeHeader(term)));
+}
+
+function renderImportPreview(rows){
+  $('previewHead').innerHTML = `<tr>${importFields.map(f => `<th>${f.label}</th>`).join('')}</tr>`;
+  $('previewBody').innerHTML = rows.slice(0, 5).map(row => `
+    <tr>${importFields.map(f => `<td>${f.key === 'valor' ? fmtMoneyFull.format(row[f.key]) : escapeHtml(f.key === 'vencimento' || f.key === 'emissao' ? showDate(row[f.key]) : row[f.key])}</td>`).join('')}</tr>
+  `).join('');
+}
+
+function clearImport(){
+  state.pendingImport = null;
+  $('fileInput').value = '';
+  $('importFeedback').hidden = true;
+  $('previewWrap').hidden = true;
+  $('validationMessage').className = 'validation-message';
+}
+
+function showImportError(message){
+  state.pendingImport = null;
+  $('validationMessage').className = 'validation-message error';
+  $('validationMessage').textContent = message;
+  $('previewWrap').hidden = true;
+}
+
+function snapshotDate(file){
+  const source = `${file.webkitRelativePath || ''} ${file.name}`;
+  const match = source.match(/(\d{2})[.\-_](\d{2})[.\-_](\d{4})/);
+  if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+  return new Date(file.lastModified || Date.now()).toISOString().slice(0,10);
+}
+
+async function parseSnapshot(file){
+  const workbook = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true });
+  const analysis = analysisFromWorkbook(workbook);
+  const overdueName = findSheet(workbook, 'TOTAL INADIMPLENTES') || workbook.SheetNames[0];
+  const openName = findSheet(workbook, 'TOTAL EM ABERTO');
+  const overdue = mapSheetRows(XLSX.utils.sheet_to_json(workbook.Sheets[overdueName], { defval:'' })).map(r => enrichRow(r, analysis));
+  const allOpen = openName ? mapSheetRows(XLSX.utils.sheet_to_json(workbook.Sheets[openName], { defval:'' })).map(r => enrichRow(r, analysis)) : [];
+  const invalid = overdue.find(r => !Number.isFinite(r.valor) || !Number.isFinite(r.dias));
+
+  if (invalid) throw new Error(`Valor ou dias inválidos na linha ${invalid._row}.`);
+  return {
+    date: snapshotDate(file),
+    file: file.name,
+    path: file.webkitRelativePath || file.name,
+    lastModified: file.lastModified,
+    hasOpenSheet: Boolean(openName),
+    allOpen,
+    overdue,
+    analysis,
+    totalOpen: sum(allOpen.map(r => r.valor)),
+    totalOverdue: sum(overdue.map(r => r.valor)),
+    titles: overdue.length,
+    clients: new Set(overdue.map(r => r.cliente)).size,
+    critical: sum(overdue.filter(r => r.dias > 90).map(r => r.valor))
+  };
+}
+
+function repairMissingOpenBalances(history){
+  const valid = history.filter(s => s.allOpen?.length && s.totalOpen > s.totalOverdue * 1.05);
+  history.forEach(snapshot => {
+    const suspicious = !snapshot.allOpen?.length || snapshot.totalOpen <= snapshot.totalOverdue * 1.0001;
+    if (!suspicious || !valid.length) return;
+    const targetTime = new Date(`${snapshot.date}T12:00:00`).getTime();
+    const nearest = valid.reduce((best, item) => {
+      const bestDist = Math.abs(new Date(`${best.date}T12:00:00`).getTime() - targetTime);
+      const itemDist = Math.abs(new Date(`${item.date}T12:00:00`).getTime() - targetTime);
+      return itemDist < bestDist ? item : best;
+    });
+    snapshot.allOpen = nearest.allOpen;
+    snapshot.totalOpen = nearest.totalOpen;
+    snapshot.openBalanceSource = `posição de ${nearest.date}`;
+  });
+  return history;
+}
+
+async function handleImportFiles(fileList){
+  const files = [...fileList].filter(f => /\.(xlsx|xls|csv)$/i.test(f.name) && !f.name.startsWith('~$'));
+  $('importFeedback').hidden = false;
+  $('previewWrap').hidden = true;
+  $('fileName').textContent = files.length === 1 ? files[0].name : `${files.length} arquivos encontrados`;
+  $('fileMeta').textContent = 'Preparando compilação...';
+  $('validationMessage').className = 'validation-message loading';
+
+  if (!files.length) {
+    showImportError('Nenhuma planilha Excel ou CSV foi encontrada na seleção.');
+    return;
+  }
+
+  const results = [];
+  const errors = [];
+  let cursor = 0, done = 0;
+
+  const worker = async () => {
+    while (cursor < files.length) {
+      const file = files[cursor++];
+      try {
+        results.push(await parseSnapshot(file));
+      } catch (error) {
+        errors.push(`${file.name}: ${error.message}`);
+      }
+      done++;
+      $('validationMessage').textContent = `Processando ${done} de ${files.length} arquivos...`;
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(8, files.length) }, worker));
+
+  if (!results.length) {
+    showImportError(errors[0] || 'Nenhum arquivo válido pôde ser processado.');
+    return;
+  }
+
+  const byDate = new Map();
+  results.sort((a,b) => a.date.localeCompare(b.date) || a.lastModified - b.lastModified).forEach(s => byDate.set(s.date, s));
+  const history = repairMissingOpenBalances([...byDate.values()].sort((a,b) => a.date.localeCompare(b.date)));
+  const latest = history.at(-1);
+
+  state.pendingImport = {
+    allOpen: latest.allOpen,
+    overdue: latest.overdue,
+    analysis: latest.analysis,
+    sourceFile: latest.file,
+    history
+  };
+
+  $('fileName').textContent = `${history.length} snapshots consolidados`;
+  $('fileMeta').textContent = `${files.length} arquivos lidos • ${monthLabel(monthKey(history[0].date))} a ${monthLabel(monthKey(latest.date))}`;
+  $('validationMessage').className = 'validation-message success';
+  const repaired = history.filter(s => s.openBalanceSource).length;
+  $('validationMessage').textContent = `Histórico pronto. O arquivo de ${showDate(latest.date)} será usado como posição atual${repaired ? `; ${repaired} posição(ões) sem total em aberto foram associadas à base mais próxima` : ''}${errors.length ? `; ${errors.length} arquivo(s) com formato não compatível ignorado(s)` : ''}.`;
+  renderImportPreview(latest.overdue);
+  $('previewWrap').hidden = false;
+}
+
+function applyImport(){
+  if (!state.pendingImport) return;
+  state.allOpenRows = state.pendingImport.allOpen;
+  state.overdueRows = state.pendingImport.overdue;
+  state.analysis = state.pendingImport.analysis;
+  state.history = state.pendingImport.history;
+  state.sourceFile = state.pendingImport.sourceFile;
+  state.updatedAt = state.history.at(-1).date;
+  state.pendingImport = null;
+
+  $('baseUpdated').textContent = `Base atual: ${state.sourceFile} • histórico de ${state.history.length} snapshots`;
+  refreshFilters();
+  refreshYearFilter();
+  resetFilters();
+  $('validationMessage').className = 'validation-message success';
+  $('validationMessage').textContent = 'Histórico consolidado com sucesso no navegador.';
+  $('previewWrap').hidden = true;
+  document.querySelector('#visao')?.scrollIntoView({ behavior:'smooth' });
+}
+
+function downloadTemplate(){
+  const header = importFields.map(f => f.label).join(';');
+  const sample = ['CL00001','00123456000199','CLIENTE EXEMPLO LTDA','12345','45678','24/08/2026','24/07/2026','78500,00','31','Contato em andamento','VENDEDOR EXEMPLO'].join(';');
+  const blob = new Blob([`\uFEFF${header}\n${sample}`], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'modelo_total_inadimplentes.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadInitialData(){
+  const base = window.BASE_INADIMPLENCIA || {};
+  state.analysis = base.analise || {};
+  state.allOpenRows = (base.totalEmAberto || []).map(r => enrichRow(r, state.analysis));
+  state.overdueRows = (base.inadimplentes || []).map(r => enrichRow(r, state.analysis));
+  state.sourceFile = base.sourceFile || 'Base inicial';
+  state.updatedAt = base.updatedAt || '';
+
+  const match = String(state.updatedAt).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const date = match ? `${match[3]}-${match[2]}-${match[1]}` : new Date().toISOString().slice(0,10);
+  state.history = [{
+    date,
+    file: state.sourceFile,
+    allOpen: state.allOpenRows,
+    overdue: state.overdueRows,
+    totalOpen: sum(state.allOpenRows.map(r => r.valor)),
+    totalOverdue: sum(state.overdueRows.map(r => r.valor)),
+    titles: state.overdueRows.length,
+    clients: new Set(state.overdueRows.map(r => r.cliente)).size
+  }];
+  $('baseUpdated').textContent = `Base: ${state.sourceFile}${state.updatedAt ? ` • ${state.updatedAt}` : ''}`;
+}
+
+function init(){
+  loadInitialData();
+  refreshFilters();
+  refreshYearFilter();
+
+  ['clienteFilter','gestorFilter','statusFilter','periodoFilter'].forEach(id => {
+    $(id)?.addEventListener('change', renderAll);
+  });
+  $('globalSearch')?.addEventListener('input', renderAll);
+  $('resetBtn')?.addEventListener('click', resetFilters);
+  $('exportBtn')?.addEventListener('click', exportCsv);
+  $('templateBtn')?.addEventListener('click', downloadTemplate);
+
+  const dropZone = $('dropZone');
+  if (dropZone) {
+    let dragCounter = 0;
+    dropZone.addEventListener('click', () => $('fileInput')?.click());
+    dropZone.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        $('fileInput')?.click();
+      }
+    });
+
+    dropZone.addEventListener('dragenter', e => {
+      e.preventDefault();
+      dragCounter++;
+      dropZone.classList.add('dragging');
+    });
+
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault();
+    });
+
+    dropZone.addEventListener('dragleave', e => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        dropZone.classList.remove('dragging');
+      }
+    });
+
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dragCounter = 0;
+      dropZone.classList.remove('dragging');
+      if (e.dataTransfer?.files?.length) {
+        handleImportFiles(e.dataTransfer.files);
+      }
+    });
+  }
+
+  $('fileInput')?.addEventListener('change', e => {
+    if (e.target.files.length) handleImportFiles(e.target.files);
+  });
+
+  $('removeFileBtn')?.addEventListener('click', clearImport);
+  $('cancelImportBtn')?.addEventListener('click', clearImport);
+  $('applyImportBtn')?.addEventListener('click', applyImport);
+
+  $('importCustomerRegistryBtn')?.addEventListener('click', () => $('customerRegistryInput')?.click());
+  $('customerRegistryInput')?.addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    $('rjRegistryStatus').textContent = 'Lendo e cruzando a planilha…';
+    try {
+      await importCustomerRegistry(file);
+    } catch (error) {
+      $('rjRegistryStatus').textContent = `Não foi possível importar: ${error.message}`;
+    } finally {
+      event.target.value = '';
+    }
+  });
+
+  $('rjScopeSelect')?.addEventListener('change', event => {
+    state.rjScope = event.target.value;
+    renderRJMonitor();
+  });
+
+  $('checkAllRJBtn')?.addEventListener('click', checkAllRJ);
+  $('rjMonitorTable')?.addEventListener('click', event => {
+    const button = event.target.closest('.api-check-btn');
+    if (button) checkRJByCnpj(button.dataset.cnpj);
+  });
+
+  // Close year options dropdown when clicking outside
+  document.addEventListener('click', event => {
+    const yearDetails = $('yearFilter');
+    if (yearDetails && yearDetails.open && !yearDetails.contains(event.target)) {
+      yearDetails.removeAttribute('open');
+    }
+  });
+
+  setupFinancialInteraction();
+  setupEvolutionInteraction();
+  window.addEventListener('resize', renderAll);
+  renderAll();
+}
+
+document.addEventListener('DOMContentLoaded', init);
