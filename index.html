@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; form-action 'self'; base-uri 'self'" />
   <title>Compo Expert | Dashboard de Inadimplência</title>
-  <link rel="stylesheet" href="./style.css?v=20260826-5" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <link rel="icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
+  <link rel="shortcut icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
+  <link rel="stylesheet" href="./style.css?v=20260831" />
 </head>
 <body>
   <div class="top-strip">
@@ -21,15 +26,14 @@
         <img src="./assets/compo-expert-logo.svg" alt="Compo Expert" />
       </a>
 
-      <nav class="nav" aria-label="Menu principal">
-        <a href="#visao">Visão geral</a>
+      <nav class="nav" aria-label="Menu principal" id="mainNav">
+        <a href="#visao-tab" class="active">Visão geral</a>
         <a href="#evolucao">Evolução</a>
         <a href="#taxa">Taxa</a>
         <a href="#situacao">Situação atual</a>
-        <a href="#aging">Aging</a>
-        <a href="#gestores">Gestores</a>
-        <a href="#monitor-empresarial">Monitoramento empresarial</a>
-        <a href="#monitor-rj">Consulta cadastral</a>
+        <a href="#analytics">Análises</a>
+        <a href="#monitor-empresarial">Risco Empresarial</a>
+        <a href="#monitor-rj">Consulta RJ</a>
         <a href="#detalhes">Detalhes</a>
         <a href="#importar">Importar</a>
       </nav>
@@ -71,7 +75,7 @@
   </section>
 
   <main class="wrap main">
-    <section class="card import-card" id="importar">
+    <section class="card import-card tab-pane" id="importar">
       <div class="section-title">
         <div>
           <span class="section-kicker">Atualização da base</span>
@@ -126,7 +130,7 @@
       </div>
     </section>
 
-    <section class="filters card" id="visao">
+    <section class="filters card global-filters" id="visao">
       <div class="section-title">
         <div>
           <span class="section-kicker">Filtros dinâmicos</span>
@@ -162,7 +166,7 @@
       </div>
     </section>
 
-    <section class="kpi-grid" aria-label="Indicadores principais">
+    <section class="kpi-grid tab-pane active" id="visao-tab" aria-label="Indicadores principais">
       <article class="kpi-card">
         <small>Total em aberto</small>
         <strong id="kpiSaldo">R$ 0</strong>
@@ -185,7 +189,7 @@
       </article>
     </section>
 
-    <section id="evolucao">
+    <section id="evolucao" class="tab-pane">
       <article class="card chart-card chart-card--large financial-history-card">
         <div class="card-head">
           <div>
@@ -206,7 +210,7 @@
       </article>
     </section>
 
-    <section class="rate-layout" id="taxa">
+    <section class="rate-layout tab-pane" id="taxa">
       <article class="card chart-card rate-chart-card">
         <div class="card-head simple">
           <div>
@@ -215,7 +219,10 @@
           </div>
           <span class="pill" id="rateCurrent">Atual: —</span>
         </div>
-        <canvas id="rateChart" width="900" height="320"></canvas>
+        <div class="interactive-chart">
+          <canvas id="rateChart" width="900" height="320"></canvas>
+          <div class="chart-tooltip" id="rateTooltip" hidden></div>
+        </div>
         <div class="chart-legend rate-legend">
           <span><i style="background:#64b32e"></i>Evolução da taxa</span>
           <span><i style="background:#c64444"></i>Pico máximo</span>
@@ -238,7 +245,7 @@
       </aside>
     </section>
 
-    <section class="evolution-layout" id="situacao">
+    <section class="evolution-layout tab-pane" id="situacao">
       <article class="card chart-card chart-card--large">
         <div class="card-head">
           <div>
@@ -267,7 +274,7 @@
       </aside>
     </section>
 
-    <section class="analytics-grid">
+    <section class="analytics-grid tab-pane" id="analytics">
       <article class="card" id="aging">
         <div class="card-head simple">
           <div>
@@ -309,7 +316,7 @@
       </article>
     </section>
 
-    <section class="legal-module" id="monitor-empresarial">
+    <section class="legal-module tab-pane" id="monitor-empresarial">
       <div class="legal-hero">
         <div><span class="section-kicker">Radar de risco empresarial</span><h2>Monitoramento Empresarial</h2><p>Acompanhe empresas, processos públicos, alertas e a composição do risco em um só lugar.</p></div>
         <div class="legal-actions">
@@ -345,7 +352,7 @@
     <dialog class="legal-dialog" id="legalCompanyDialog"><form id="legalCompanyForm" method="dialog"><div class="dialog-head"><div><span class="section-kicker">Cadastro monitorado</span><h3 id="legalDialogTitle">Nova empresa</h3></div><button type="button" id="legalDialogClose" aria-label="Fechar">×</button></div><input type="hidden" name="id"><div class="legal-form-grid"><label>Razão Social*<input name="razaoSocial" required></label><label>Nome Fantasia<input name="nomeFantasia"></label><label>CNPJ*<input name="cnpj" required maxlength="18"></label><label>Estado<input name="estado" maxlength="2"></label><label>Cidade<input name="cidade"></label><label>Segmento<input name="segmento"></label><label>Nome interno/apelido<input name="apelido"></label><label>Status do cliente<select name="status"><option>ATIVO</option><option>INATIVO</option><option>PROSPECT</option></select></label><label class="wide">Aliases, separados por vírgula<input name="aliases"></label><label class="wide">Observações<textarea name="observacoes" rows="3"></textarea></label><label class="check-label"><input name="monitoramentoAtivo" type="checkbox" checked> Monitoramento ativo</label></div><div class="dialog-actions"><button type="button" class="secondary-btn" id="legalCancelBtn">Cancelar</button><button type="submit" class="primary-btn">Salvar empresa</button></div></form></dialog>
     <dialog class="legal-dialog legal-detail-dialog" id="legalDetailDialog"><div id="legalCompanyDetail"></div><div class="dialog-actions"><button type="button" class="primary-btn" id="legalDetailClose">Fechar</button></div></dialog>
 
-    <section class="card rj-monitor" id="monitor-rj">
+    <section class="card rj-monitor tab-pane" id="monitor-rj">
       <div class="card-head">
         <div>
           <span class="section-kicker">Monitoramento preventivo</span>
@@ -385,7 +392,7 @@
       <p class="rj-disclaimer">A consulta automática verifica a situação especial cadastral. Use a consulta oficial do CNJ como confirmação jurídica complementar.</p>
     </section>
 
-    <section class="card detail-card" id="detalhes">
+    <section class="card detail-card tab-pane" id="detalhes">
       <div class="card-head simple">
         <div>
           <span class="section-kicker">Detalhamento</span>

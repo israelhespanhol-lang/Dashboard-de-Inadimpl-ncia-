@@ -1,4 +1,4 @@
-const fmtMoney = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL', maximumFractionDigits:0 });
+const fmtMoney = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL', minimumFractionDigits:2, maximumFractionDigits:2 });
 const fmtMoneyFull = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL', minimumFractionDigits:2, maximumFractionDigits:2 });
 const fmtDate = new Intl.DateTimeFormat('pt-BR');
 const fmtOneDecimal = new Intl.NumberFormat('pt-BR', { maximumFractionDigits:1 });
@@ -21,16 +21,16 @@ const state = {
 };
 
 const importFields = [
-  { key:'codigo', label:'Código PN', aliases:['codigo pn','código pn','codigo','cod pn','cod'] },
+  { key:'codigo', label:'Código PN', aliases:['codigo pn','código pn','codigo','cod pn','cod','pn'] },
   { key:'cnpj', label:'CNPJ', aliases:['cnpj','cpf/cnpj','cpf cnpj','documento fiscal','doc fiscal'] },
-  { key:'cliente', label:'Razão Social', aliases:['razao social','razão social','cliente','nome do cliente','nome'] },
-  { key:'documento', label:'Nº Documento', aliases:['no.docto.','nº documento','no documento','documento','doc'] },
-  { key:'nf', label:'Nº NF', aliases:['no. nf','nº nf','no nf','nf','nota fiscal'] },
+  { key:'cliente', label:'Razão Social', aliases:['razao social','razão social','cliente','nome do cliente','nome','rotulos de linha','rótulos de linha','clientes'] },
+  { key:'documento', label:'Nº Documento', aliases:['no.docto.','nº documento','no documento','documento','doc','no/docto/','no/docto','doc sap','lcm'] },
+  { key:'nf', label:'Nº NF', aliases:['no. nf','nº nf','no nf','nf','nota fiscal','no/ nf','no/nf'] },
   { key:'emissao', label:'Emissão', aliases:['emissao','emissão','data emissao','data emissão'] },
-  { key:'vencimento', label:'Vencimento', aliases:['vencimento','data vencimento','dt vencimento'] },
-  { key:'valor', label:'Valor R$', aliases:['valor r$','valor','saldo','valor em aberto','saldo em aberto'] },
-  { key:'dias', label:'Dias Atraso', aliases:['dias atraso','dias em atraso','dias'] },
-  { key:'observacoes', label:'Observações', aliases:['observacoes','observações','obs','motivo'] },
+  { key:'vencimento', label:'Vencimento', aliases:['vencimento','data vencimento','dt vencimento','vencimento parcela','novo vencimento','vencimentos'] },
+  { key:'valor', label:'Valor R$', aliases:['valor r$','valor','saldo','valor em aberto','saldo em aberto','saldo a pagar','soma de valor r$','soma de saldo a pagar','total prestação','total prestacao'] },
+  { key:'dias', label:'Dias Atraso', aliases:['dias atraso','dias em atraso','dias','máx. de dias atraso','max. de dias atraso','max de dias atraso','máx de dias atraso'] },
+  { key:'observacoes', label:'Observações', aliases:['observacoes','observações','obs','motivo','garantias'] },
   { key:'gestor', label:'Vendedor', aliases:['vendedor','gestor','responsavel','responsável'] }
 ];
 
@@ -93,9 +93,9 @@ function sum(values) {
 
 function formatAxisMoney(value){
   const amount = Number(value) || 0;
-  if (Math.abs(amount) >= 1000000) return `R$ ${fmtOneDecimal.format(amount/1000000)} mi`;
-  if (Math.abs(amount) >= 1000) return `R$ ${fmtOneDecimal.format(amount/1000)} mil`;
-  return `R$ ${fmtOneDecimal.format(amount)}`;
+  if (Math.abs(amount) >= 1000000) return `R$ ${Math.round(amount/1000000)} mi`;
+  if (Math.abs(amount) >= 1000) return `R$ ${Math.round(amount/1000)} mil`;
+  return `R$ ${Math.round(amount)}`;
 }
 
 function groupBy(rows, field) {
@@ -105,7 +105,8 @@ function groupBy(rows, field) {
 }
 
 function uniqueValues(field) {
-  return ['Todos', ...new Set(state.overdueRows.map(r => r[field]).filter(Boolean))];
+  const values = [...new Set(state.allOpenRows.map(r => r[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return ['Todos', ...values];
 }
 
 function fillSelect(id, values) {
@@ -199,8 +200,9 @@ function filterRows(rows){
 }
 
 function filteredTitles(){
-  const latest = selectedSnapshots().at(-1);
-  return filterRows(latest?.overdue || state.overdueRows);
+  const snapshots = selectedSnapshots();
+  if (!snapshots.length) return [];
+  return filterRows(snapshots.at(-1).overdue || []);
 }
 
 function monthKey(value){
@@ -215,7 +217,7 @@ function monthLabel(key){
 
 function evolutionData(){
   const monthly = new Map();
-  filteredTitles().forEach(row => {
+  filteredTitles().filter(row => Number(row.dias) > 0).forEach(row => {
     const key = monthKey(row.vencimento);
     const item = monthly.get(key) || { total:0, titles:0 };
     item.total += (Number(row.valor) || 0);
@@ -243,8 +245,15 @@ function monthlySnapshots(){
 function financialHistoryData(){
   const snapshots = monthlySnapshots();
   const labels = snapshots.map(s => monthLabel(monthKey(s.date)));
-  const open = snapshots.map(s => sum(filterRows(s.allOpen || []).map(r => r.valor)));
-  const overdue = snapshots.map(s => sum(filterRows(s.overdue || []).map(r => r.valor)));
+  const open = snapshots.map(s => {
+    const sumAll = sum(filterRows(s.allOpen || []).map(r => r.valor));
+    const sumOv = sum(filterRows(s.overdue || []).map(r => r.valor));
+    return sumAll > 0 ? sumAll : sumOv;
+  });
+  const overdue = snapshots.map((s, i) => {
+    const ov = filterRows(s.overdue || []).filter(r => Number(r.dias) > 0);
+    return sum(ov.map(r => r.valor));
+  });
   return {
     labels: labels.length ? labels : ['Sem dados'],
     open: open.length ? open : [0],
@@ -264,12 +273,22 @@ function drawAxes(ctx, w, h, p){
   }
 }
 
-function prepareCanvas(canvas, defaultW=600, defaultH=300){
-  const baseW = Number(canvas.getAttribute('width')) || defaultW;
-  const baseH = Number(canvas.getAttribute('height')) || defaultH;
+function prepareCanvas(canvas, defaultW=620, defaultH=300){
+  if (!canvas) return null;
+  if (!canvas.dataset.baseW) {
+    canvas.dataset.baseW = canvas.getAttribute('width') || defaultW;
+    canvas.dataset.baseH = canvas.getAttribute('height') || defaultH;
+  }
+  const baseW = Number(canvas.dataset.baseW) || defaultW;
+  const baseH = Number(canvas.dataset.baseH) || defaultH;
   const ratio = baseH / baseW;
-  const w = canvas.clientWidth > 0 ? canvas.clientWidth : baseW;
-  const h = Math.round(w * ratio);
+  
+  const parent = canvas.parentElement;
+  const parentW = parent ? parent.clientWidth : 0;
+  const clientW = canvas.clientWidth || parentW;
+  const w = clientW > 40 ? clientW : baseW;
+  const h = Math.max(120, Math.round(w * ratio));
+  
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
@@ -280,7 +299,10 @@ function prepareCanvas(canvas, defaultW=600, defaultH=300){
 }
 
 function drawLineChart(canvas, labels, series, options={}){
-  const { ctx, w, h } = prepareCanvas(canvas, 1280, 390);
+  if (!canvas) return;
+  const prep = prepareCanvas(canvas, 1280, 390);
+  if (!prep) return;
+  const { ctx, w, h } = prep;
   const p = { left: 86, right: 28, top: 25, bottom: 46 };
   drawAxes(ctx, w, h, p);
 
@@ -334,7 +356,10 @@ function drawLineChart(canvas, labels, series, options={}){
 }
 
 function drawBarChart(canvas, labels, values, horizontal=false){
-  const { ctx, w, h } = prepareCanvas(canvas, 620, 300);
+  if (!canvas) return;
+  const prep = prepareCanvas(canvas, 620, 300);
+  if (!prep) return;
+  const { ctx, w, h } = prep;
   const p = { left: horizontal ? 105 : 55, right: 24, top: 20, bottom: 52 };
   const rawMax = Math.max(0, ...values);
   const max = (rawMax > 0 ? rawMax : 1) * 1.15;
@@ -371,6 +396,12 @@ function drawBarChart(canvas, labels, values, horizontal=false){
       ctx.textAlign = 'center';
       const label = labels[i] || '';
       ctx.fillText(label.length > 12 ? `${label.slice(0,10)}…` : label, x + barW / 2, h - 20);
+      if (rawMax > 0 && v > 0) {
+        ctx.fillStyle = colors.dark;
+        ctx.font = 'bold 11px Arial, sans-serif';
+        ctx.fillText(formatAxisMoney(v), x + barW / 2, Math.max(p.top + 14, y - 6));
+        ctx.font = '12px Arial, sans-serif';
+      }
     });
   }
 }
@@ -462,21 +493,72 @@ function setupFinancialInteraction(){
   canvas.addEventListener('mouseleave', () => { tooltip.hidden = true; });
 }
 
+function allRateData(){
+  return selectedSnapshots().map(snapshot => {
+    const all = filterRows(snapshot.allOpen || []);
+    const ov = filterRows(snapshot.overdue || []);
+    const totalOpen = sum(all.map(r => r.valor));
+    const totalOverdue = sum(ov.map(r => r.valor));
+    return { ...snapshot, totalOpen, totalOverdue, rate: totalOpen > 0 ? totalOverdue / totalOpen : 0 };
+  }).filter(s => s.totalOpen > 0 || s.totalOverdue > 0);
+}
+
 function rateData(){
   return monthlySnapshots().map(snapshot => {
-    const totalOpen = sum(filterRows(snapshot.allOpen || []).map(r => r.valor));
-    const totalOverdue = sum(filterRows(snapshot.overdue || []).map(r => r.valor));
+    const all = filterRows(snapshot.allOpen || []);
+    const ov = filterRows(snapshot.overdue || []);
+    const totalOpen = sum(all.map(r => r.valor));
+    const totalOverdue = sum(ov.map(r => r.valor));
     return { ...snapshot, totalOpen, totalOverdue, rate: totalOpen > 0 ? totalOverdue / totalOpen : 0 };
-  }).filter(s => s.totalOpen > 0);
+  }).filter(s => s.totalOpen > 0 || s.totalOverdue > 0);
+}
+
+function setupRateInteraction(){
+  const canvas = $('rateChart');
+  const tooltip = $('rateTooltip');
+  if (!canvas || !tooltip) return;
+
+  canvas.addEventListener('mousemove', event => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = event.clientX - rect.left;
+    const points = canvas._chartPoints || [];
+    if (!points.length) {
+      tooltip.hidden = true;
+      return;
+    }
+    const nearest = points.reduce((best, point, index) => {
+      const distance = Math.abs(point.x - mx);
+      return !best || distance < best.distance ? { point, index, distance } : best;
+    }, null);
+
+    if (!nearest || nearest.distance > 35) {
+      tooltip.hidden = true;
+      return;
+    }
+    const data = canvas._rateData;
+    const item = data?.[nearest.index];
+    if (!item) {
+      tooltip.hidden = true;
+      return;
+    }
+    const fmt = v => new Intl.NumberFormat('pt-BR', { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2 }).format(v);
+    tooltip.innerHTML = `<strong>${nearest.point.label} (${showDate(item.date)})</strong><span>Taxa: ${fmt(item.rate)}</span><span>Total em atraso: ${fmtMoney.format(item.totalOverdue)}</span><span>Total em aberto: ${fmtMoney.format(item.totalOpen)}</span>`;
+    tooltip.style.left = `${Math.min(rect.width - 250, Math.max(8, nearest.point.x + 12))}px`;
+    tooltip.style.top = '34px';
+    tooltip.hidden = false;
+  });
+
+  canvas.addEventListener('mouseleave', () => { tooltip.hidden = true; });
 }
 
 function renderRateChart(){
+  const allData = allRateData();
   const data = rateData();
   const format = value => new Intl.NumberFormat('pt-BR', { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2 }).format(value);
   const canvas = $('rateChart');
   if (!canvas) return;
 
-  if (!data.length) {
+  if (!allData.length || !data.length) {
     drawLineChart(canvas, ['Sem dados'], [{ data:[0], color:colors.green, width:4 }], { percent:true });
     $('rateCurrent').textContent = 'Atual: —';
     $('rateMax').textContent = '—';
@@ -486,16 +568,21 @@ function renderRateChart(){
     return;
   }
 
-  const max = data.reduce((a,b) => b.rate > a.rate ? b : a);
-  const min = data.reduce((a,b) => b.rate < a.rate ? b : a);
-  const current = data.at(-1);
-  const maxIndex = data.indexOf(max);
-  const minIndex = data.indexOf(min);
+  const max = allData.reduce((a,b) => b.rate > a.rate ? b : a);
+  const min = allData.reduce((a,b) => b.rate < a.rate ? b : a);
+  const current = allData.at(-1);
+
+  const maxMonthKey = monthKey(max.date);
+  const minMonthKey = monthKey(min.date);
+  const maxIndex = data.findIndex(s => monthKey(s.date) === maxMonthKey);
+  const minIndex = data.findIndex(s => monthKey(s.date) === minMonthKey);
+
   const pointColors = data.map((_,i) => i === maxIndex ? colors.danger : i === minIndex ? colors.dark : colors.green);
   const pointSizes = data.map((_,i) => i === maxIndex || i === minIndex ? 7 : 4);
 
+  canvas._rateData = data;
   drawLineChart(canvas, data.map(s => monthLabel(monthKey(s.date))), [{ data: data.map(s => s.rate), color: colors.green, width: 4, pointColors, pointSizes }], { percent: true });
-  $('rateCurrent').textContent = `Atual: ${format(current.rate)}`;
+  $('rateCurrent').textContent = `Posição (${showDate(current.date)}): ${format(current.rate)}`;
   $('rateMax').textContent = format(max.rate);
   $('rateMaxDate').textContent = showDate(max.date);
   $('rateMin').textContent = format(min.rate);
@@ -504,11 +591,12 @@ function renderRateChart(){
 
 function renderKpis(){
   const rows = filteredTitles();
-  const neutral = currentFilters().cliente === 'Todos' && currentFilters().gestor === 'Todos' && currentFilters().status === 'Todos';
-  const latest = selectedSnapshots().at(-1);
-  const openBase = neutral ? (latest?.allOpen || state.allOpenRows) : rows;
-  const openTotal = sum(openBase.map(r => r.valor));
+  const snapshots = selectedSnapshots();
+  const latest = snapshots.at(-1);
+  const allOpenFiltered = latest ? filterRows(latest.allOpen || []) : [];
+  const sumAll = sum(allOpenFiltered.map(r => r.valor));
   const overdue = sum(rows.map(r => r.valor));
+  const openTotal = sumAll > 0 ? sumAll : overdue;
   const crit = sum(rows.filter(r => Number(r.dias) > 90).map(r => r.valor));
   const clients = new Set(rows.map(r => r.cliente).filter(Boolean)).size;
 
@@ -517,8 +605,8 @@ function renderKpis(){
   $('heroRisk').textContent = fmtMoney.format(overdue);
   $('kpiClientes').textContent = clients;
   $('kpi90').textContent = fmtMoney.format(crit);
-  $('kpiSaldoDelta').textContent = `${openBase.length} títulos na carteira`;
-  $('kpiIndiceDelta').textContent = `${rows.length} títulos vencidos`;
+  $('kpiSaldoDelta').textContent = `${allOpenFiltered.length || rows.length} títulos na carteira`;
+  $('kpiIndiceDelta').textContent = `${rows.length} títulos inadimplentes`;
   $('kpiClientesDelta').textContent = 'Clientes com parcelas em atraso';
 }
 
@@ -542,7 +630,7 @@ function renderInsights(){
 
 function renderSecondaryCharts(){
   const rows = filteredTitles();
-  const order = ['0-30', '31-60', '61-90', '+90'];
+  const order = ['A vencer', '0-30', '31-60', '61-90', '+90'];
   const values = order.map(a => sum(rows.filter(r => r.aging === a).map(r => r.valor)));
   drawBarChart($('agingChart'), order, values, true);
 
@@ -573,21 +661,21 @@ function renderManagers(){
 }
 
 function renderRanking(){
-  const peaks = new Map();
   const latestInfo = new Map();
-  selectedSnapshots().forEach(snapshot => {
-    const rows = filterRows(snapshot.overdue || []);
-    const totals = groupBy(rows, 'cliente');
-    rows.forEach(row => latestInfo.set(row.cliente, { codigo: row.codigo, gestor: row.gestor, date: snapshot.date }));
-    totals.forEach(item => {
-      const current = peaks.get(item.key);
-      if (!current || item.total > current.total) peaks.set(item.key, { ...item, date: snapshot.date });
-    });
-  });
-
-  const items = [...peaks.values()].sort((a,b) => b.total - a.total).slice(0, 5);
+  const latest = selectedSnapshots().at(-1);
   const el = $('rankingList');
   if (!el) return;
+
+  if (!latest) {
+    el.innerHTML = '<div class="empty-state">Nenhum cliente inadimplente registrado no período.</div>';
+    return;
+  }
+
+  const rows = filterRows(latest.overdue || []).filter(r => Number(r.dias) > 0);
+  const totals = groupBy(rows, 'cliente');
+  rows.forEach(row => latestInfo.set(row.cliente, { codigo: row.codigo, gestor: row.gestor, date: latest.date }));
+
+  const items = totals.sort((a,b) => b.total - a.total).slice(0, 5);
   el.innerHTML = items.length
     ? items.map((item, i) => {
         const info = latestInfo.get(item.key) || {};
@@ -595,7 +683,7 @@ function renderRanking(){
           <div class="rank-row">
             <div>
               <strong>${i + 1}. ${escapeHtml(item.key)}</strong>
-              <small>${escapeHtml(info.codigo || '')} • ${escapeHtml(info.gestor || '—')} • maior saldo em ${showDate(item.date)}</small>
+              <small>${escapeHtml(info.codigo || '')} • ${escapeHtml(info.gestor || '—')} • atualizado em ${showDate(info.date)}</small>
             </div>
             <div class="amount">${fmtMoney.format(item.total)}</div>
           </div>
@@ -887,20 +975,40 @@ function mapSheetRows(rawRows){
   })).filter(r => r.cliente);
 }
 
+function getHeaderRowIndex(sheet, isAnalysis = false) {
+  const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
+    const cols = rawRows[i].map(c => normalizeHeader(String(c)));
+    if (isAnalysis) {
+      if (cols.some(c => c === 'razao social' || c === 'cliente')) return i;
+    } else {
+      const hasCliente = cols.some(c => importFields.find(f => f.key === 'cliente').aliases.map(normalizeHeader).includes(c));
+      const hasValor = cols.some(c => importFields.find(f => f.key === 'valor').aliases.map(normalizeHeader).includes(c));
+      if (hasCliente && hasValor) return i;
+    }
+  }
+  return 0;
+}
+
 function analysisFromWorkbook(workbook){
-  const name = workbook.SheetNames.find(n => normalizeHeader(n).includes('analise de inadimplencia'));
+  const name = workbook.SheetNames.find(n => {
+    const norm = normalizeHeader(n);
+    return norm.includes('analise') || (norm.includes('inadimpl') && !norm.includes('total'));
+  });
   if (!name) return {};
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { range:2, defval:'' });
+  const sheet = workbook.Sheets[name];
+  const headerRow = getHeaderRowIndex(sheet, true);
+  const rows = XLSX.utils.sheet_to_json(sheet, { range: headerRow, defval: '' });
   const map = {};
   rows.forEach(row => {
     const keys = Object.keys(row);
     const get = label => row[keys.find(k => normalizeHeader(k) === normalizeHeader(label))] || '';
-    const cliente = String(get('Razão Social') || get('Cliente') || '').trim();
-    if (cliente && !normalizeHeader(cliente).startsWith('total')) {
+    const cliente = String(get('Razão Social') || get('Razao Social') || get('Cliente') || get('Rótulos de Linha') || get('Rótulo de Linha') || get('CLIENTES') || '').trim();
+    if (cliente && !normalizeHeader(cliente).startsWith('total') && !normalizeHeader(cliente).startsWith('geral')) {
       map[cliente] = {
-        gestorAnalise: String(get('VENDEDOR')).trim(),
-        cobranca: String(get('STATUS DA COBRANÇA')).trim(),
-        negociacao: String(get('NEGOCIAÇÃO')).trim(),
+        gestorAnalise: String(get('VENDEDOR') || get('Vendedor')).trim(),
+        cobranca: String(get('STATUS DA COBRANÇA') || get('STATUS') || '').trim(),
+        negociacao: String(get('NEGOCIAÇÃO') || get('GARANTIAS') || '').trim(),
         providencia: String(get('PROVIDENCIA')).trim()
       };
     }
@@ -909,7 +1017,8 @@ function analysisFromWorkbook(workbook){
 }
 
 function findSheet(workbook, term){
-  return workbook.SheetNames.find(name => normalizeHeader(name).includes(normalizeHeader(term)));
+  const normTerm = normalizeHeader(term);
+  return workbook.SheetNames.find(name => normalizeHeader(name).includes(normTerm));
 }
 
 function renderImportPreview(rows){
@@ -934,20 +1043,101 @@ function showImportError(message){
   $('previewWrap').hidden = true;
 }
 
+const monthsNameMap = {
+  'janeiro': '01', 'jan': '01',
+  'fevereiro': '02', 'fev': '02',
+  'marco': '03', 'março': '03', 'mar': '03',
+  'abril': '04', 'abr': '04',
+  'maio': '05', 'mai': '05',
+  'junho': '06', 'jun': '06',
+  'julho': '07', 'jul': '07',
+  'agosto': '08', 'ago': '08',
+  'setembro': '09', 'set': '09',
+  'outubro': '10', 'out': '10',
+  'novembro': '11', 'nov': '11',
+  'dezembro': '12', 'dez': '12'
+};
+
 function snapshotDate(file){
   const source = `${file.webkitRelativePath || ''} ${file.name}`;
-  const match = source.match(/(\d{2})[.\-_](\d{2})[.\-_](\d{4})/);
-  if (match) return `${match[3]}-${match[2]}-${match[1]}`;
-  return new Date(file.lastModified || Date.now()).toISOString().slice(0,10);
+  const cleanSource = normalizeHeader(source);
+
+  // 1. DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY, DD_MM_YYYY (ex: "CONTROLE DE INADIMPLENCIA 25.08.2026.xlsx")
+  let m = source.match(/(?:^|[^\d])(\d{1,2})[.\/_\-](\d{1,2})[.\/_\-](\d{4})(?:[^\d]|$)/);
+  if (m) {
+    const d = m[1].padStart(2, '0'), month = m[2].padStart(2, '0'), y = m[3];
+    if (Number(month) >= 1 && Number(month) <= 12 && Number(d) >= 1 && Number(d) <= 31 && Number(y) >= 2000 && Number(y) <= 2035) {
+      return `${y}-${month}-${d}`;
+    }
+  }
+
+  // 2. YYYY-MM-DD / YYYY.MM.DD / YYYY_MM_DD
+  m = source.match(/(?:^|[^\d])(\d{4})[.\/_\-](\d{1,2})[.\/_\-](\d{1,2})(?:[^\d]|$)/);
+  if (m) {
+    const y = m[1], month = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
+    if (Number(month) >= 1 && Number(month) <= 12 && Number(d) >= 1 && Number(d) <= 31 && Number(y) >= 2000 && Number(y) <= 2035) {
+      return `${y}-${month}-${d}`;
+    }
+  }
+
+  // 3. 8 dígitos sem separador: DDMMAAAA (ex: "CONTROLE DE INADIMPLENCIA 25082026.xlsx")
+  m = source.match(/(?:^|[^\d])(\d{2})(\d{2})(\d{4})(?:[^\d]|$)/);
+  if (m) {
+    const d = m[1], month = m[2], y = m[3];
+    if (Number(month) >= 1 && Number(month) <= 12 && Number(d) >= 1 && Number(d) <= 31 && Number(y) >= 2000 && Number(y) <= 2035) {
+      return `${y}-${month}-${d}`;
+    }
+  }
+
+  // 4. 7 dígitos sem separador: DMMYYYY (ex: "1102023" -> dia 01, mês 10, ano 2023)
+  m = source.match(/(?:^|[^\d])(\d{1,2})(\d{2})(\d{4})(?:[^\d]|$)/);
+  if (m) {
+    const d = m[1].padStart(2, '0'), month = m[2], y = m[3];
+    if (Number(month) >= 1 && Number(month) <= 12 && Number(d) >= 1 && Number(d) <= 31 && Number(y) >= 2000 && Number(y) <= 2035) {
+      return `${y}-${month}-${d}`;
+    }
+  }
+
+  // 5. Extração por pasta de mês/ano + dia no nome
+  const yearMatch = source.match(/\b(202\d)\b/);
+  let foundMonth = null;
+  for (const [mName, mNum] of Object.entries(monthsNameMap)) {
+    if (cleanSource.includes(mName)) { foundMonth = mNum; break; }
+  }
+  const dayMatch = file.name.match(/(?:^|[^\d])(\d{1,2})(?:[^\d]|$)/);
+  if (yearMatch && foundMonth && dayMatch) {
+    const d = dayMatch[1].padStart(2, '0');
+    if (Number(d) >= 1 && Number(d) <= 31) {
+      return `${yearMatch[1]}-${foundMonth}-${d}`;
+    }
+  }
+
+  return '1970-01-01';
 }
 
 async function parseSnapshot(file){
   const workbook = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true });
   const analysis = analysisFromWorkbook(workbook);
-  const overdueName = findSheet(workbook, 'TOTAL INADIMPLENTES') || workbook.SheetNames[0];
-  const openName = findSheet(workbook, 'TOTAL EM ABERTO');
-  const overdue = mapSheetRows(XLSX.utils.sheet_to_json(workbook.Sheets[overdueName], { defval:'' })).map(r => enrichRow(r, analysis));
-  const allOpen = openName ? mapSheetRows(XLSX.utils.sheet_to_json(workbook.Sheets[openName], { defval:'' })).map(r => enrichRow(r, analysis)) : [];
+  const overdueName = workbook.SheetNames.find(s => {
+    const norm = normalizeHeader(s);
+    return norm.includes('total inadimplent') || norm.includes('total inaidmplent') || norm.includes('total inadimplenc') || norm.includes('inadimplentes') || (norm.includes('inadimplencia') && !norm.includes('analise'));
+  }) || workbook.SheetNames[0];
+
+  const openName = workbook.SheetNames.find(s => {
+    const norm = normalizeHeader(s);
+    return norm.includes('total em aberto') || norm.includes('em aberto');
+  });
+  
+  const overdueSheet = workbook.Sheets[overdueName];
+  const overdueRange = getHeaderRowIndex(overdueSheet);
+  const overdue = mapSheetRows(XLSX.utils.sheet_to_json(overdueSheet, { range: overdueRange, defval:'' })).map(r => enrichRow(r, analysis));
+  
+  let allOpen = [];
+  if (openName) {
+    const openSheet = workbook.Sheets[openName];
+    const openRange = getHeaderRowIndex(openSheet);
+    allOpen = mapSheetRows(XLSX.utils.sheet_to_json(openSheet, { range: openRange, defval:'' })).map(r => enrichRow(r, analysis));
+  }
   const invalid = overdue.find(r => !Number.isFinite(r.valor) || !Number.isFinite(r.dias));
 
   if (invalid) throw new Error(`Valor ou dias inválidos na linha ${invalid._row}.`);
@@ -1194,8 +1384,31 @@ function init(){
     }
   });
 
+  const navLinks = document.querySelectorAll('#mainNav a');
+  const tabs = document.querySelectorAll('.tab-pane');
+  
+  navLinks.forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      navLinks.forEach(l => l.classList.remove('active'));
+      tabs.forEach(t => t.classList.remove('active'));
+      link.classList.add('active');
+      const targetId = link.getAttribute('href').substring(1);
+      const targetTab = $(targetId);
+      if (targetTab) {
+        targetTab.classList.add('active');
+        // Re-render charts to fix canvas sizes when showing previously hidden tabs
+        requestAnimationFrame(() => {
+          renderAll();
+          setTimeout(() => renderAll(), 60);
+        });
+      }
+    });
+  });
+
   setupFinancialInteraction();
   setupEvolutionInteraction();
+  setupRateInteraction();
   window.addEventListener('resize', renderAll);
   renderAll();
 }
