@@ -35,6 +35,7 @@
         <a href="#monitor-empresarial">Risco Empresarial</a>
         <a href="#monitor-rj">Consulta RJ</a>
         <a href="#detalhes">Detalhes</a>
+        <a href="#historico-pagamentos">Histórico Pag.</a>
         <a href="#importar">Importar</a>
       </nav>
 
@@ -392,6 +393,47 @@
       <p class="rj-disclaimer">A consulta automática verifica a situação especial cadastral. Use a consulta oficial do CNJ como confirmação jurídica complementar.</p>
     </section>
 
+    <section class="card detail-card tab-pane" id="historico-pagamentos">
+      <div class="card-head">
+        <div>
+          <span class="section-kicker">Comportamento de Pagamento</span>
+          <h2>Histórico Financeiro Consolidado</h2>
+          <p class="chart-description">Importe a planilha consolidada para analisar a evolução do comportamento de pagamentos (Lead/Lag).</p>
+        </div>
+        <div class="rj-actions" style="margin-top: 0;">
+          <input id="paymentHistoryInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          <button class="secondary-btn" id="paymentHistoryMockBtn" type="button" style="margin-right: 8px;">Dados Demonstrativos</button>
+          <button class="primary-btn" id="paymentHistoryImportBtn" type="button">Importar Planilha Histórica</button>
+        </div>
+      </div>
+      
+      <compo-payment-timeline
+        id="paymentTimeline"
+        logo="./assets/compo-expert-logo.svg"
+        truck="./assets/compo-truck.png"
+        style="margin-top: 24px;">
+      </compo-payment-timeline>
+
+      <div class="table-wrap" style="margin-top: 24px; border-top: 1px solid #e6eee1; padding-top: 24px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>SAP Number</th>
+              <th>Nota Fiscal</th>
+              <th>Emissão</th>
+              <th>Vencimento</th>
+              <th>Pagamento</th>
+              <th>Status</th>
+              <th>Dias</th>
+              <th>Valor (R$)</th>
+            </tr>
+          </thead>
+          <tbody id="paymentDetailTable"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="card detail-card tab-pane" id="detalhes">
       <div class="card-head simple">
         <div>
@@ -429,6 +471,7 @@
   <script src="./assets/xlsx.mini.min.js?v=20260825-3"></script>
   <script src="./assets/base_inadimplencia.js?v=20260825-7"></script>
   <script src="./assets/legal-core.js?v=20260826-2"></script>
+  <script src="./compo-payment-timeline.js"></script>
   <script src="./script.js?v=20260826-11"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>

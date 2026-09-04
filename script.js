@@ -15,6 +15,7 @@ const state = {
   rjChecks: new Map(),
   rjLoading: new Set(),
   customerRegistry: [],
+  paymentBase: [],
   rjScope: 'financial',
   sourceFile: '',
   updatedAt: ''
@@ -912,6 +913,7 @@ function renderAll(){
   renderRanking();
   renderRJMonitor();
   renderTable();
+  renderPaymentHistory();
 }
 
 function resetFilters(){
@@ -1244,6 +1246,7 @@ function applyImport(){
   state.sourceFile = state.pendingImport.sourceFile;
   state.updatedAt = state.history.at(-1).date;
   state.pendingImport = null;
+  state._paymentHistoryCache = null;
 
   $('baseUpdated').textContent = `Base atual: ${state.sourceFile} • histórico de ${state.history.length} snapshots`;
   refreshFilters();
@@ -1288,6 +1291,120 @@ function loadInitialData(){
     clients: new Set(state.overdueRows.map(r => r.cliente)).size
   }];
   $('baseUpdated').textContent = `Base: ${state.sourceFile}${state.updatedAt ? ` • ${state.updatedAt}` : ''}`;
+}
+
+async function parsePaymentSpreadsheet(file) {
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  
+  if (!rawRows.length) throw new Error('A planilha está vazia.');
+  
+  let headerRow = 0;
+  for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+    const cols = rawRows[i].map(c => normalizeHeader(String(c)));
+    if (cols.includes('customer') || cols.includes('name') || cols.includes('payment date')) {
+      headerRow = i; break;
+    }
+  }
+  
+  const headers = rawRows[headerRow].map(c => normalizeHeader(String(c)));
+  const findCol = (...names) => headers.findIndex(h => names.includes(h));
+  
+  const colCustomer = findCol('customer', 'código', 'codigo do cliente', 'codigo');
+  const colName = findCol('name', 'nome', 'nome do cliente', 'razao social', 'cliente');
+  const colSap = findCol('sap number', 'sap', 'nº sap', 'no sap');
+  const colInvoice = findCol('invoice number', 'invoice', 'nota fiscal', 'nf');
+  const colIssue = findCol('invoice date', 'data de emissão', 'emissao');
+  const colDue = findCol('due date', 'data de vencimento', 'vencimento');
+  const colPay = findCol('payment date', 'data do pagamento efetivo', 'pagamento');
+  const colVal = findCol('invoice value', 'valor da nota', 'valor');
+
+  const parsed = [];
+  rawRows.slice(headerRow + 1).forEach((row) => {
+    const name = String(row[colName] || '').trim();
+    if (!name) return;
+    
+    const dueDate = toIsoDate(row[colDue]);
+    const payDate = toIsoDate(row[colPay]);
+    const value = parseMoney(row[colVal]);
+    
+    if (!dueDate || !payDate || isNaN(value)) return;
+    
+    const delay = Math.round((new Date(payDate) - new Date(dueDate)) / (1000 * 60 * 60 * 24));
+    let status = 'No Prazo';
+    if (delay > 0) status = 'Atrasado';
+    else if (delay < 0) status = 'Adiantado';
+    
+    parsed.push({
+      customer: String(row[colCustomer] || '').trim(),
+      name,
+      sap: String(row[colSap] || '').trim(),
+      invoice: String(row[colInvoice] || '').trim(),
+      issueDate: toIsoDate(row[colIssue]),
+      dueDate,
+      payDate,
+      value,
+      delay,
+      status
+    });
+  });
+  
+  state.paymentBase = parsed.sort((a,b) => a.payDate.localeCompare(b.payDate));
+  renderAll();
+}
+
+
+function renderPaymentHistory() {
+  const f = currentFilters();
+  const search = f.search;
+  
+  let rows = state.paymentBase;
+  if (search) {
+    rows = rows.filter(r => {
+      const name = r.name.toLowerCase();
+      const customer = r.customer.toLowerCase();
+      return name.includes(search) || customer.includes(search);
+    });
+  } else if (f.cliente !== 'Todos') {
+    rows = rows.filter(r => r.name.toLowerCase() === f.cliente.toLowerCase());
+  }
+  
+  const timeline = document.getElementById('paymentTimeline');
+  if (timeline) {
+    timeline.configure({
+      backgroundImage: "./assets/fundo-agro-limpo.png"
+    });
+    const mapped = rows.map((pt, i) => ({
+      id: i,
+      client: pt.name,
+      dueDate: pt.dueDate,
+      paymentDate: pt.payDate,
+      amount: pt.value,
+      daysDelay: pt.delay
+    }));
+    timeline.data = mapped;
+  }
+  
+  const tbody = $('paymentDetailTable');
+  if (tbody) {
+    const sorted = [...rows].sort((a,b) => b.delay - a.delay);
+    tbody.innerHTML = sorted.length 
+      ? sorted.slice(0, 100).map(r => `
+          <tr>
+            <td><strong>${escapeHtml(r.name)}</strong></td>
+            <td>${escapeHtml(r.sap || '—')}</td>
+            <td>${escapeHtml(r.invoice || '—')}</td>
+            <td>${showDate(r.issueDate)}</td>
+            <td>${showDate(r.dueDate)}</td>
+            <td>${showDate(r.payDate)}</td>
+            <td><span class="badge ${r.delay > 0 ? 'danger' : 'ok'}">${r.status}</span></td>
+            <td>${r.delay > 0 ? `+${r.delay}` : r.delay}</td>
+            <td>${fmtMoney.format(r.value)}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="9" class="empty-table">Nenhum título importado ou cliente não encontrado na base de pagamentos.</td></tr>';
+  }
 }
 
 function init(){
@@ -1409,6 +1526,50 @@ function init(){
   setupFinancialInteraction();
   setupEvolutionInteraction();
   setupRateInteraction();
+  $('paymentHistoryImportBtn')?.addEventListener('click', () => $('paymentHistoryInput')?.click());
+  $('paymentHistoryInput')?.addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      await parsePaymentSpreadsheet(file);
+    } catch (e) {
+      alert('Erro na importação: ' + e.message);
+    } finally {
+      event.target.value = '';
+    }
+  });
+
+  $('paymentHistoryMockBtn')?.addEventListener('click', () => {
+    const mock = [];
+    const baseDate = new Date();
+    for (let i=0; i<400; i++) {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() - Math.floor(Math.random() * 730)); // 2 years back
+      const pay = new Date(d);
+      const isLate = Math.random() > 0.6;
+      const delay = isLate ? Math.floor(Math.random() * 90) + 1 : -Math.floor(Math.random() * 5);
+      pay.setDate(pay.getDate() + delay);
+      
+      mock.push({
+        customer: 'C001',
+        name: 'AGRO FORTTE EXEMPLO',
+        sap: '12345',
+        invoice: `NF-${1000+i}`,
+        issueDate: toIsoDate(new Date(d.getTime() - 86400000*30)),
+        dueDate: toIsoDate(d),
+        payDate: toIsoDate(pay),
+        value: 1000 + Math.random()*50000,
+        delay,
+        status: delay > 0 ? 'Atrasado' : delay === 0 ? 'No Prazo' : 'Adiantado'
+      });
+    }
+    state.paymentBase = mock.sort((a,b) => a.payDate.localeCompare(b.payDate));
+    if ($('globalSearch')) $('globalSearch').value = 'AGRO FORTTE';
+    renderAll();
+  });
+  
+
+  
   window.addEventListener('resize', renderAll);
   renderAll();
 }
