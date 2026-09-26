@@ -59,8 +59,8 @@
 
     function toIsoDate(value) {
       if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0,10);
-      if (typeof value === 'number' && window.XLSX?.SSF) {
-        const parsed = window.XLSX.SSF.parse_date_code(value);
+      if (typeof value === 'number' && typeof XLSX !== 'undefined' && XLSX.SSF) {
+        const parsed = XLSX.SSF.parse_date_code(value);
         if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2,'0')}-${String(parsed.d).padStart(2,'0')}`;
       }
       const text = String(value || '').trim();
@@ -116,7 +116,7 @@
         }
 
         try {
-          const workbook = window.XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true });
+          const workbook = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true });
           
           const overdueName = workbook.SheetNames.find(s => {
             const norm = normalize(s);
@@ -124,7 +124,7 @@
           }) || workbook.SheetNames[0];
 
           const overdueSheet = workbook.Sheets[overdueName];
-          const rawRows = window.XLSX.utils.sheet_to_json(overdueSheet, { header: 1, defval: '' });
+          const rawRows = XLSX.utils.sheet_to_json(overdueSheet, { header: 1, defval: '' });
           
           let headerRow = 0;
           for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
@@ -134,7 +134,7 @@
             if (hasCliente && hasValor) { headerRow = i; break; }
           }
 
-          const parsedRows = window.XLSX.utils.sheet_to_json(overdueSheet, { range: headerRow, defval: '' });
+          const parsedRows = XLSX.utils.sheet_to_json(overdueSheet, { range: headerRow, defval: '' });
           if (!parsedRows.length) continue;
 
           const headers = Object.keys(parsedRows[0]);
