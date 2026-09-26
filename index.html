@@ -90,30 +90,34 @@
       </div>
 
       <div class="import-layout">
-        <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Selecionar arquivo para importar">
-          <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" webkitdirectory directory multiple hidden />
-          <span class="upload-icon" aria-hidden="true">⇧</span>
-          <strong>Selecione a pasta INADIMPLENCIA</strong>
-          <p>O app percorre as pastas de ano e mês sem enviar os arquivos</p>
-          <span class="file-types">Processamento 100% local • nada sai do navegador</span>
+        <div class="drop-zone" style="text-align: left; padding: 24px; cursor: default;" tabindex="0">
+          <label style="display: block; margin-bottom: 8px; font-weight: bold;">1. Data de Referência da Planilha (Data Base)</label>
+          <input type="date" id="dbDateInput" style="width: 100%; padding: 12px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 8px;" />
           
-          <div style="margin-top: 1rem; border-top: 1px dashed rgba(255,255,255,0.2); padding-top: 1rem;">
-             <button class="btn btn--primary" id="cloudSyncBtn" type="button" style="width: 100%;">
-                ☁️ Sincronizar Arquivo Mestre (Nuvem)
-             </button>
-             <small style="display: block; margin-top: 0.5rem; opacity: 0.8;">Baixa a versão segura diretamente do Supabase</small>
-          </div>
+          <label style="display: block; margin-bottom: 8px; font-weight: bold;">2. Selecione a planilha do dia (.xlsx / .csv)</label>
+          <input id="dbFileInput" type="file" accept=".xlsx,.xls,.csv" style="width: 100%; padding: 12px; border: 1px dashed var(--green); border-radius: 8px; background: #f9fbf8; margin-bottom: 24px;" />
+          
+          <button class="btn btn--primary" id="dbUploadBtn" type="button" style="width: 100%; height: 48px; font-size: 16px;">
+            ☁️ Salvar Dados no Banco (Empilhar)
+          </button>
+          <small style="display: block; margin-top: 12px; opacity: 0.8; text-align: center;" id="dbUploadStatus">
+            Os dados serão adicionados ao histórico consolidado no Supabase.
+          </small>
         </div>
 
         <aside class="import-guide">
-          <span class="section-kicker">Colunas esperadas</span>
-          <p>Use a pasta raiz que contém subpastas como 2025, 2026 e, dentro delas, os meses com os arquivos diários.</p>
+          <span class="section-kicker">Como funciona o empilhamento?</span>
+          <p>Diferente de um arquivo estático, o banco de dados armazena um histórico progressivo da sua carteira.</p>
           <div class="guide-tags">
-            <span>✓ Detecta ano e mês</span>
-            <span>✓ Evita somar snapshots repetidos</span>
-            <span>✓ Mantém histórico consolidado</span>
-            <span>✓ Conexões externas bloqueadas</span>
+            <span>✓ Selecione a data exata da foto</span>
+            <span>✓ Envie apenas a carteira atualizada</span>
+            <span>✓ O sistema preserva o passado automaticamente</span>
+            <span>✓ Gráficos consolidados em tempo real</span>
           </div>
+          
+          <button class="btn btn--danger" id="dbClearBtn" type="button" style="margin-top: 24px; width: 100%;">
+             🗑️ Limpar Banco de Dados
+          </button>
         </aside>
       </div>
 

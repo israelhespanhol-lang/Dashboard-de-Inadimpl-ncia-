@@ -1411,7 +1411,6 @@ async function init(){
   // Verificação de autenticação Supabase
   if (window.appSupabase) {
     
-    // Captura a sessão passada pela URL se houver (útil para uso via duplo-clique no arquivo file://)
     const hashData = window.location.hash.substring(1);
     if (hashData.startsWith('session=')) {
       try {
@@ -1421,10 +1420,8 @@ async function init(){
           access_token: sessionData.access_token,
           refresh_token: sessionData.refresh_token
         });
-        window.history.replaceState(null, null, ' '); // Limpa o hash para ficar bonito
-      } catch(e) {
-        console.error("Erro ao processar sessão pela URL", e);
-      }
+        window.history.replaceState(null, null, ' ');
+      } catch(e) { console.error("Erro sessão hash", e); }
     }
 
     const { data } = await window.appSupabase.auth.getSession();
@@ -1432,15 +1429,16 @@ async function init(){
       window.location.href = 'login.html';
       return;
     }
+    document.body.classList.add('auth-checked');
+
+    // CARREGA DADOS DO BANCO DE DADOS
+    await fetchDatabaseHistory();
+
   } else if (sessionStorage.getItem('compo_auth') !== 'true') {
      window.location.href = 'login.html';
      return;
   }
-
-  // Se chegou aqui, está autenticado! Mostra a tela.
-  document.body.classList.add('auth-checked');
-
-  loadInitialData();
+  
   refreshFilters();
   refreshYearFilter();
 
@@ -1452,53 +1450,8 @@ async function init(){
   $('exportBtn')?.addEventListener('click', exportCsv);
   $('templateBtn')?.addEventListener('click', downloadTemplate);
 
-  const dropZone = $('dropZone');
-  if (dropZone) {
-    let dragCounter = 0;
-    dropZone.addEventListener('click', () => $('fileInput')?.click());
-    dropZone.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        $('fileInput')?.click();
-      }
-    });
-
-    dropZone.addEventListener('dragenter', e => {
-      e.preventDefault();
-      dragCounter++;
-      dropZone.classList.add('dragging');
-    });
-
-    dropZone.addEventListener('dragover', e => {
-      e.preventDefault();
-    });
-
-    dropZone.addEventListener('dragleave', e => {
-      e.preventDefault();
-      dragCounter--;
-      if (dragCounter <= 0) {
-        dragCounter = 0;
-        dropZone.classList.remove('dragging');
-      }
-    });
-
-    dropZone.addEventListener('drop', e => {
-      e.preventDefault();
-      dragCounter = 0;
-      dropZone.classList.remove('dragging');
-      if (e.dataTransfer?.files?.length) {
-        handleImportFiles(e.dataTransfer.files);
-      }
-    });
-  }
-
-  $('fileInput')?.addEventListener('change', e => {
-    if (e.target.files.length) handleImportFiles(e.target.files);
-  });
-
-  $('removeFileBtn')?.addEventListener('click', clearImport);
-  $('cancelImportBtn')?.addEventListener('click', clearImport);
-  $('applyImportBtn')?.addEventListener('click', applyImport);
+  // Limpar os event listeners antigos que não estão mais no HTML
+  // (já removemos do index.html a DIV com o id="dropZone")
   
   $('cloudSyncBtn')?.addEventListener('click', async () => {
     if (!window.appSupabase) {
@@ -1635,6 +1588,152 @@ async function init(){
   
   window.addEventListener('resize', renderAll);
   renderAll();
+
+  // NOVO FLUXO DE UPLOAD PARA O BANCO DE DADOS
+  const dbUploadBtn = $('dbUploadBtn');
+  const dbClearBtn = $('dbClearBtn');
+
+  if (dbUploadBtn) {
+    dbUploadBtn.addEventListener('click', async () => {
+      const dateInput = $('dbDateInput').value;
+      const fileInput = $('dbFileInput').files[0];
+      
+      if (!dateInput) return alert('Por favor, selecione a Data de Referência (Data Base).');
+      if (!fileInput) return alert('Por favor, selecione a planilha do dia.');
+      
+      $('dbUploadStatus').textContent = 'Analisando planilha e enviando para o banco de dados... (Isso pode levar alguns segundos)';
+      dbUploadBtn.disabled = true;
+
+      try {
+        const snapshot = await parseSnapshot(fileInput);
+        
+        // Formatar os dados para inserir no PostgreSQL
+        // Inserimos os que estao em overdue (inadimplentes)
+        const records = snapshot.overdue.map(r => ({
+          data_base: dateInput,
+          codigo: r.codigo,
+          cnpj: r.cnpj,
+          cliente: r.cliente,
+          documento: r.documento,
+          nf: r.nf,
+          emissao: r.emissao || null,
+          vencimento: r.vencimento || null,
+          valor: r.valor,
+          dias: r.dias,
+          observacoes: r.observacoes,
+          gestor: r.gestor
+        }));
+
+        if (records.length === 0) {
+           throw new Error('Nenhum registro de inadimplência encontrado na planilha.');
+        }
+
+        // Dividir em blocos menores caso seja muito grande
+        const chunkSize = 1000;
+        for (let i = 0; i < records.length; i += chunkSize) {
+          const chunk = records.slice(i, i + chunkSize);
+          const { error } = await window.appSupabase.from('inadimplencia_history').insert(chunk);
+          if (error) throw error;
+        }
+
+        $('dbUploadStatus').textContent = '✅ Salvo com sucesso! Atualizando dashboard...';
+        
+        // Recarregar os dados
+        await fetchDatabaseHistory();
+        
+        alert(`Sucesso! ${records.length} registros foram salvos no banco para a data ${dateInput}.`);
+        $('dbFileInput').value = '';
+        
+      } catch (err) {
+        console.error(err);
+        $('dbUploadStatus').textContent = `❌ Erro: ${err.message}`;
+        alert(`Erro ao processar: ${err.message}`);
+      } finally {
+        dbUploadBtn.disabled = false;
+      }
+    });
+  }
+
+  if (dbClearBtn) {
+    dbClearBtn.addEventListener('click', async () => {
+      const resp = prompt("CUIDADO: Isso vai apagar TODO o histórico do banco de dados.\nDigite 'APAGAR TUDO' para confirmar:");
+      if (resp === 'APAGAR TUDO') {
+        const { error } = await window.appSupabase.from('inadimplencia_history').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        if (!error) {
+           alert("Histórico limpo!");
+           await fetchDatabaseHistory();
+        } else {
+           alert("Erro: " + error.message);
+        }
+      }
+    });
+  }
 }
+
+// NOVA FUNÇÃO: BUSCAR DO BANCO
+async function fetchDatabaseHistory() {
+  if (!window.appSupabase) return;
+  
+  const baseUpdated = $('baseUpdated');
+  if (baseUpdated) baseUpdated.textContent = 'Carregando dados da nuvem...';
+  
+  const { data, error } = await window.appSupabase
+    .from('inadimplencia_history')
+    .select('*')
+    .order('data_base', { ascending: true });
+    
+  if (error) {
+    console.error('Erro ao buscar do Supabase', error);
+    alert('Não foi possível carregar os dados. Você criou a tabela no Supabase?');
+    return;
+  }
+  
+  if (!data || data.length === 0) {
+    state.history = [];
+    state.allOpenRows = [];
+    state.overdueRows = [];
+    if (baseUpdated) baseUpdated.textContent = 'Banco de dados vazio. Importe o primeiro arquivo!';
+    renderAll();
+    return;
+  }
+  
+  // Agrupar os dados que vieram do banco pelo campo "data_base"
+  const byDate = new Map();
+  data.forEach(row => {
+     if (!byDate.has(row.data_base)) {
+        byDate.set(row.data_base, []);
+     }
+     byDate.get(row.data_base).push(row);
+  });
+  
+  const history = [];
+  Array.from(byDate.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([date, rows]) => {
+     // Recria o objeto snapshot esperado pelo sistema
+     const overdue = rows.map(r => enrichRow(r));
+     history.push({
+       date: date,
+       file: 'Nuvem (Banco de Dados)',
+       allOpen: [], // Quando usando BD apenas com inadimplentes, allOpen fica vazio
+       overdue: overdue,
+       totalOpen: sum(overdue.map(r => r.valor)), // Aproximação
+       totalOverdue: sum(overdue.map(r => r.valor)),
+       titles: overdue.length,
+       clients: new Set(overdue.map(r => r.cliente)).size
+     });
+  });
+  
+  state.history = history;
+  const latest = history[history.length - 1];
+  
+  state.allOpenRows = latest.overdue; // Sem a aba "em aberto", usamos os inadimplentes
+  state.overdueRows = latest.overdue;
+  state.sourceFile = 'Supabase Cloud DB';
+  state.updatedAt = latest.date;
+  
+  if (baseUpdated) baseUpdated.textContent = `Dados em nuvem sincronizados! Base mais recente: ${showDate(latest.date)}`;
+  
+  refreshFilters();
+  refreshYearFilter();
+  renderAll();
 
 document.addEventListener('DOMContentLoaded', init);
