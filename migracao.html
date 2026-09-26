@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Migrador Histórico Compo Expert</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-mini@0.0.1/dist/xlsx.mini.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background: #f4f6f4; color: #172217; }
+    .card { background: #fff; padding: 32px; border-radius: 12px; max-width: 800px; margin: 0 auto; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+    h1 { margin-top: 0; color: #64b32e; }
+    button { background: #64b32e; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #log { background: #172217; color: #dcedd3; padding: 16px; border-radius: 6px; height: 300px; overflow-y: auto; font-family: monospace; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>☁️ Migrador Histórico para Nuvem</h1>
+    <p>Este utilitário vai varrer a pasta descompactada e subir todos os dados do passado para o Supabase PostgreSQL.</p>
+    
+    <label style="display: block; font-weight: bold; margin-bottom: 8px;">1. Selecione a pasta descompactada (_historico_tmp):</label>
+    <input type="file" id="folderInput" webkitdirectory directory multiple style="margin-bottom: 24px; border: 1px dashed #ccc; padding: 12px; width: 100%;">
+    
+    <button id="startBtn">Iniciar Migração</button>
+    
+    <div id="log">Aguardando pasta...</div>
+  </div>
+
+  <script src="./supabase-client.js"></script>
+  <script>
+    const importFields = [
+      { key:'codigo', aliases:['codigo pn','código pn','codigo','cod pn','cod','pn'] },
+      { key:'cnpj', aliases:['cnpj','cpf/cnpj','cpf cnpj','documento fiscal','doc fiscal'] },
+      { key:'cliente', aliases:['razao social','razão social','cliente','nome do cliente','nome','rotulos de linha','rótulos de linha','clientes'] },
+      { key:'documento', aliases:['no.docto.','nº documento','no documento','documento','doc','no/docto/','no/docto','doc sap','lcm'] },
+      { key:'nf', aliases:['no. nf','nº nf','no nf','nf','nota fiscal','no/ nf','no/nf'] },
+      { key:'emissao', aliases:['emissao','emissão','data emissao','data emissão'] },
+      { key:'vencimento', aliases:['vencimento','data vencimento','dt vencimento','vencimento parcela','novo vencimento','vencimentos'] },
+      { key:'valor', aliases:['valor r$','valor','saldo','valor em aberto','saldo em aberto','saldo a pagar','soma de valor r$','soma de saldo a pagar','total prestação','total prestacao'] },
+      { key:'dias', aliases:['dias atraso','dias em atraso','dias','máx. de dias atraso','max. de dias atraso','max de dias atraso','máx de dias atraso'] },
+      { key:'observacoes', aliases:['observacoes','observações','obs','motivo','garantias'] },
+      { key:'gestor', aliases:['vendedor','gestor','responsavel','responsável'] }
+    ];
+
+    const monthsNameMap = {
+      'janeiro': '01', 'jan': '01', 'fevereiro': '02', 'fev': '02', 'marco': '03', 'março': '03', 'mar': '03',
+      'abril': '04', 'abr': '04', 'maio': '05', 'mai': '05', 'junho': '06', 'jun': '06', 'julho': '07', 'jul': '07',
+      'agosto': '08', 'ago': '08', 'setembro': '09', 'set': '09', 'outubro': '10', 'out': '10', 'novembro': '11', 'nov': '11', 'dezembro': '12', 'dez': '12'
+    };
+
+    function normalize(v) { return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
+    
+    function parseMoney(value) {
+      if (typeof value === 'number') return value;
+      const clean = String(value || '').replace(/R\$/gi,'').replace(/\s/g,'');
+      return clean ? Number(clean.includes(',') ? clean.replace(/\./g,'').replace(',','.') : clean) : NaN;
+    }
+
+    function toIsoDate(value) {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0,10);
+      if (typeof value === 'number' && window.XLSX?.SSF) {
+        const parsed = window.XLSX.SSF.parse_date_code(value);
+        if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2,'0')}-${String(parsed.d).padStart(2,'0')}`;
+      }
+      const text = String(value || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0,10);
+      const br = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      return br ? `${br[3]}-${br[2].padStart(2,'0')}-${br[1].padStart(2,'0')}` : text;
+    }
+
+    function snapshotDate(file) {
+      const source = `${file.webkitRelativePath || ''} ${file.name}`;
+      const cleanSource = normalize(source);
+      let m = source.match(/(?:^|[^\d])(\d{1,2})[.\/_\-](\d{1,2})[.\/_\-](\d{4})(?:[^\d]|$)/);
+      if (m) { const d = m[1].padStart(2, '0'), month = m[2].padStart(2, '0'), y = m[3]; if (y>=2000) return `${y}-${month}-${d}`; }
+      m = source.match(/(?:^|[^\d])(\d{4})[.\/_\-](\d{1,2})[.\/_\-](\d{1,2})(?:[^\d]|$)/);
+      if (m) { const y = m[1], month = m[2].padStart(2, '0'), d = m[3].padStart(2, '0'); if (y>=2000) return `${y}-${month}-${d}`; }
+      m = source.match(/(?:^|[^\d])(\d{2})(\d{2})(\d{4})(?:[^\d]|$)/);
+      if (m) { const d = m[1], month = m[2], y = m[3]; if (y>=2000 && Number(d)<=31 && Number(month)<=12) return `${y}-${month}-${d}`; }
+      m = source.match(/(?:^|[^\d])(\d{1,2})(\d{2})(\d{4})(?:[^\d]|$)/);
+      if (m) { const d = m[1].padStart(2, '0'), month = m[2], y = m[3]; if (y>=2000) return `${y}-${month}-${d}`; }
+      
+      const yearMatch = source.match(/\b(202\d)\b/);
+      let foundMonth = null;
+      for (const [mName, mNum] of Object.entries(monthsNameMap)) { if (cleanSource.includes(mName)) { foundMonth = mNum; break; } }
+      const dayMatch = file.name.match(/(?:^|[^\d])(\d{1,2})(?:[^\d]|$)/);
+      if (yearMatch && foundMonth && dayMatch) return `${yearMatch[1]}-${foundMonth}-${dayMatch[1].padStart(2, '0')}`;
+      
+      return null;
+    }
+
+    function log(msg) {
+      const el = document.getElementById('log');
+      el.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      const { data } = await window.appSupabase.auth.getSession();
+      if (!data.session) return alert('Você precisa estar logado no Dashboard em outra aba!');
+
+      const files = [...document.getElementById('folderInput').files].filter(f => /\.(xlsx|xls|csv)$/i.test(f.name) && !f.name.startsWith('~$'));
+      if (!files.length) return alert('Nenhuma planilha encontrada.');
+      
+      document.getElementById('startBtn').disabled = true;
+      log(`Iniciando migração de ${files.length} arquivos...`);
+
+      let totalRecords = 0;
+
+      for (const file of files) {
+        const dateBase = snapshotDate(file);
+        if (!dateBase || dateBase === '1970-01-01') {
+          log(`⚠️ IGNORADO (Sem Data Identificável): ${file.name}`);
+          continue;
+        }
+
+        try {
+          const workbook = window.XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true });
+          
+          const overdueName = workbook.SheetNames.find(s => {
+            const norm = normalize(s);
+            return norm.includes('total inadimplent') || norm.includes('total inaidmplent') || norm.includes('total inadimplenc') || norm.includes('inadimplentes') || (norm.includes('inadimplencia') && !norm.includes('analise'));
+          }) || workbook.SheetNames[0];
+
+          const overdueSheet = workbook.Sheets[overdueName];
+          const rawRows = window.XLSX.utils.sheet_to_json(overdueSheet, { header: 1, defval: '' });
+          
+          let headerRow = 0;
+          for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
+            const cols = rawRows[i].map(c => normalize(String(c)));
+            const hasCliente = cols.some(c => importFields.find(f => f.key === 'cliente').aliases.map(normalize).includes(c));
+            const hasValor = cols.some(c => importFields.find(f => f.key === 'valor').aliases.map(normalize).includes(c));
+            if (hasCliente && hasValor) { headerRow = i; break; }
+          }
+
+          const parsedRows = window.XLSX.utils.sheet_to_json(overdueSheet, { range: headerRow, defval: '' });
+          if (!parsedRows.length) continue;
+
+          const headers = Object.keys(parsedRows[0]);
+          const map = {};
+          importFields.forEach(f => {
+            const match = headers.find(h => f.aliases.map(normalize).includes(normalize(h)));
+            if (match) map[f.key] = match;
+          });
+
+          const records = parsedRows.map((row) => {
+            const c = String(row[map.cliente] || '').trim();
+            if (!c || normalize(c).startsWith('total') || normalize(c).startsWith('geral')) return null;
+            return {
+              data_base: dateBase,
+              codigo: String(row[map.codigo] || '').trim(),
+              cnpj: String(row[map.cnpj] || '').trim(),
+              cliente: c,
+              documento: String(row[map.documento] || '').trim(),
+              nf: String(row[map.nf] || '').trim(),
+              emissao: toIsoDate(row[map.emissao]) || null,
+              vencimento: toIsoDate(row[map.vencimento]) || null,
+              valor: parseMoney(row[map.valor]),
+              dias: Number(row[map.dias]),
+              observacoes: String(row[map.observacoes] || '').trim(),
+              gestor: String(row[map.gestor] || '').trim()
+            };
+          }).filter(Boolean);
+
+          if (!records.length) {
+            log(`⚠️ IGNORADO (Vazio ou Incompatível): ${file.name}`);
+            continue;
+          }
+
+          // Inserir no Supabase em chunks
+          const chunkSize = 1000;
+          for (let i = 0; i < records.length; i += chunkSize) {
+            const chunk = records.slice(i, i + chunkSize);
+            const { error } = await window.appSupabase.from('inadimplencia_history').insert(chunk);
+            if (error) throw error;
+          }
+
+          log(`✅ MIGRADO: ${file.name} -> Data: ${dateBase} (${records.length} registros)`);
+          totalRecords += records.length;
+
+        } catch (e) {
+          log(`❌ ERRO NO ARQUIVO ${file.name}: ${e.message}`);
+        }
+      }
+
+      log(`🎉 MIGRAÇÃO CONCLUÍDA! Total de ${totalRecords} registros inseridos no banco.`);
+    });
+  </script>
+</body>
+</html>
