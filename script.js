@@ -1420,6 +1420,9 @@ async function init(){
      return;
   }
 
+  // Se chegou aqui, está autenticado! Mostra a tela.
+  document.body.classList.add('auth-checked');
+
   loadInitialData();
   refreshFilters();
   refreshYearFilter();
