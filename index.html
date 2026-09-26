@@ -92,6 +92,13 @@
           <strong>Selecione a pasta INADIMPLENCIA</strong>
           <p>O app percorre as pastas de ano e mês sem enviar os arquivos</p>
           <span class="file-types">Processamento 100% local • nada sai do navegador</span>
+          
+          <div style="margin-top: 1rem; border-top: 1px dashed rgba(255,255,255,0.2); padding-top: 1rem;">
+             <button class="btn btn--primary" id="cloudSyncBtn" type="button" style="width: 100%;">
+                ☁️ Sincronizar Arquivo Mestre (Nuvem)
+             </button>
+             <small style="display: block; margin-top: 0.5rem; opacity: 0.8;">Baixa a versão segura diretamente do Supabase</small>
+          </div>
         </div>
 
         <aside class="import-guide">
@@ -471,6 +478,8 @@
   <script src="./assets/xlsx.mini.min.js?v=20260825-3"></script>
   <script src="./assets/base_inadimplencia.js?v=20260825-7"></script>
   <script src="./assets/legal-core.js?v=20260826-2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js"></script>
   <script src="./script.js?v=20260826-11"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>

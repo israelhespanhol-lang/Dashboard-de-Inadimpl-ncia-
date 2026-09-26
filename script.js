@@ -1407,7 +1407,19 @@ function renderPaymentHistory() {
   }
 }
 
-function init(){
+async function init(){
+  // Verificação de autenticação Supabase
+  if (window.appSupabase) {
+    const { data } = await window.appSupabase.auth.getSession();
+    if (!data.session) {
+      window.location.href = 'login.html';
+      return;
+    }
+  } else if (sessionStorage.getItem('compo_auth') !== 'true') {
+     window.location.href = 'login.html';
+     return;
+  }
+
   loadInitialData();
   refreshFilters();
   refreshYearFilter();
@@ -1467,6 +1479,37 @@ function init(){
   $('removeFileBtn')?.addEventListener('click', clearImport);
   $('cancelImportBtn')?.addEventListener('click', clearImport);
   $('applyImportBtn')?.addEventListener('click', applyImport);
+  
+  $('cloudSyncBtn')?.addEventListener('click', async () => {
+    if (!window.appSupabase) {
+      alert("Conexão com a nuvem não estabelecida.");
+      return;
+    }
+    const btn = $('cloudSyncBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '⏳ Baixando do Cofre Privado...';
+    btn.disabled = true;
+
+    try {
+      // Faz o download do arquivo mestre.xlsx do bucket 'arquivos-mestre'
+      const { data, error } = await window.appSupabase.storage.from('arquivos-mestre').download('mestre.xlsx');
+      
+      if (error) throw error;
+      
+      // Simula a injeção do arquivo como se tivesse sido upado
+      const file = new File([data], "mestre.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      handleImportFiles([file]);
+      
+      btn.innerHTML = '✅ Sincronizado com Sucesso';
+      setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 3000);
+      
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao baixar o arquivo mestre: " + e.message + "\n\n(Certifique-se de que fez o upload do arquivo 'mestre.xlsx' no bucket 'arquivos-mestre' no painel)");
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+    }
+  });
 
   $('importCustomerRegistryBtn')?.addEventListener('click', () => $('customerRegistryInput')?.click());
   $('customerRegistryInput')?.addEventListener('change', async event => {
