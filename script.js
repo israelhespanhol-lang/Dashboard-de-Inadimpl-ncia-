@@ -1678,29 +1678,64 @@ async function fetchDatabaseHistory() {
   if (baseUpdated) baseUpdated.textContent = 'Carregando dados da nuvem...';
   
   let allData = [];
+  let lastCreatedAt = null;
+  const cacheKey = 'inadimplencia_cache_v2';
+
+  if (window.idbKeyval) {
+    try {
+      const cached = await idbKeyval.get(cacheKey);
+      if (cached && cached.data) {
+        allData = cached.data;
+        lastCreatedAt = cached.lastCreatedAt;
+      }
+    } catch (e) {
+      console.warn("Erro ao ler cache", e);
+    }
+  }
+
   let page = 0;
   const pageSize = 1000;
   let hasMore = true;
+  let fetchedNew = false;
 
   while (hasMore) {
-    const { data, error } = await window.appSupabase
+    let query = window.appSupabase
       .from('inadimplencia_history')
       .select('*')
-      .order('data_base', { ascending: true })
+      .order('created_at', { ascending: true })
       .range(page * pageSize, (page + 1) * pageSize - 1);
+      
+    if (lastCreatedAt) {
+      query = query.gt('created_at', lastCreatedAt);
+    }
+
+    const { data, error } = await query;
       
     if (error) {
       console.error('Erro ao buscar do Supabase', error);
-      alert('Não foi possível carregar os dados. Você criou a tabela no Supabase?');
-      return;
+      if (allData.length === 0) {
+        alert('Não foi possível carregar os dados. Você criou a tabela no Supabase?');
+        return;
+      }
+      break; // Usa o cache se falhar
     }
 
     if (data && data.length > 0) {
       allData = allData.concat(data);
+      fetchedNew = true;
       page++;
       if (data.length < pageSize) hasMore = false;
     } else {
       hasMore = false;
+    }
+  }
+
+  if (fetchedNew && window.idbKeyval && allData.length > 0) {
+    try {
+      const newLastCreatedAt = allData.reduce((max, r) => (r.created_at > max ? r.created_at : max), allData[0].created_at);
+      await idbKeyval.set(cacheKey, { data: allData, lastCreatedAt: newLastCreatedAt });
+    } catch (e) {
+      console.warn("Erro ao salvar cache", e);
     }
   }
   
@@ -1724,16 +1759,67 @@ async function fetchDatabaseHistory() {
      byDate.get(row.data_base).push(row);
   });
   
+  // --- CARTEIRA HISTORY ---
+  let allCarteira = [];
+  let lastCarteiraCreated = null;
+  const cacheKeyCarteira = 'carteira_cache_v1';
+  if (window.idbKeyval) {
+    try {
+      const cachedC = await idbKeyval.get(cacheKeyCarteira);
+      if (cachedC && cachedC.data) {
+        allCarteira = cachedC.data;
+        lastCarteiraCreated = cachedC.lastCreatedAt;
+      }
+    } catch (e) { }
+  }
+
+  let pageC = 0;
+  let hasMoreC = true;
+  let fetchedNewC = false;
+  while (hasMoreC) {
+    let qC = window.appSupabase.from('carteira_history').select('*').order('created_at', { ascending: true }).range(pageC * pageSize, (pageC + 1) * pageSize - 1);
+    if (lastCarteiraCreated) qC = qC.gt('created_at', lastCarteiraCreated);
+    const { data: dataC, error: errC } = await qC;
+    if (errC) {
+      console.warn('Tabela carteira_history pode nao existir ainda ou erro:', errC);
+      break;
+    }
+    if (dataC && dataC.length > 0) {
+      allCarteira = allCarteira.concat(dataC);
+      fetchedNewC = true;
+      pageC++;
+      if (dataC.length < pageSize) hasMoreC = false;
+    } else {
+      hasMoreC = false;
+    }
+  }
+
+  if (fetchedNewC && window.idbKeyval && allCarteira.length > 0) {
+    try {
+      const newMax = allCarteira.reduce((m, r) => (r.created_at > m ? r.created_at : m), allCarteira[0].created_at);
+      await idbKeyval.set(cacheKeyCarteira, { data: allCarteira, lastCreatedAt: newMax });
+    } catch (e) { }
+  }
+
+  // Agrupar carteira
+  const byDateC = new Map();
+  allCarteira.forEach(row => {
+     if (!byDateC.has(row.data_base)) byDateC.set(row.data_base, []);
+     byDateC.get(row.data_base).push(row);
+  });
+
   const history = [];
   Array.from(byDate.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([date, rows]) => {
-     // Recria o objeto snapshot esperado pelo sistema
      const overdue = rows.map(r => enrichRow(r));
+     const openRows = byDateC.get(date) || [];
+     const allOpen = openRows.map(r => enrichRow(r));
+     
      history.push({
        date: date,
        file: 'Nuvem (Banco de Dados)',
-       allOpen: [], // Quando usando BD apenas com inadimplentes, allOpen fica vazio
+       allOpen: allOpen,
        overdue: overdue,
-       totalOpen: sum(overdue.map(r => r.valor)), // Aproximação
+       totalOpen: allOpen.length > 0 ? sum(allOpen.map(r => r.valor)) : sum(overdue.map(r => r.valor)),
        totalOverdue: sum(overdue.map(r => r.valor)),
        titles: overdue.length,
        clients: new Set(overdue.map(r => r.cliente)).size
