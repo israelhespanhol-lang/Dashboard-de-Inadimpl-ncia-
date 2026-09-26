@@ -1,0 +1,9 @@
+{
+  "name": "inadimplencia-migrator",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2",
+    "xlsx": "^0.18.5"
+  }
+}
