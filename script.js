@@ -1735,5 +1735,6 @@ async function fetchDatabaseHistory() {
   refreshFilters();
   refreshYearFilter();
   renderAll();
+}
 
 document.addEventListener('DOMContentLoaded', init);
