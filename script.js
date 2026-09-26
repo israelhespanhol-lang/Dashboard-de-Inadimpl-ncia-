@@ -1410,6 +1410,23 @@ function renderPaymentHistory() {
 async function init(){
   // Verificação de autenticação Supabase
   if (window.appSupabase) {
+    
+    // Captura a sessão passada pela URL se houver (útil para uso via duplo-clique no arquivo file://)
+    const hashData = window.location.hash.substring(1);
+    if (hashData.startsWith('session=')) {
+      try {
+        const sessionStr = decodeURIComponent(hashData.split('=')[1]);
+        const sessionData = JSON.parse(sessionStr);
+        await window.appSupabase.auth.setSession({
+          access_token: sessionData.access_token,
+          refresh_token: sessionData.refresh_token
+        });
+        window.history.replaceState(null, null, ' '); // Limpa o hash para ficar bonito
+      } catch(e) {
+        console.error("Erro ao processar sessão pela URL", e);
+      }
+    }
+
     const { data } = await window.appSupabase.auth.getSession();
     if (!data.session) {
       window.location.href = 'login.html';

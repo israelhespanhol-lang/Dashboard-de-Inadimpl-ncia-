@@ -2,11 +2,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('loginForm');
   const errorMsg = document.getElementById('loginError');
 
-  // Verifica se já está logado no Supabase
   if (window.appSupabase) {
     window.appSupabase.auth.getSession().then(({ data }) => {
       if (data.session) {
-        window.location.href = 'index.html';
+        window.location.href = 'index.html#session=' + encodeURIComponent(JSON.stringify(data.session));
       }
     });
   }
@@ -32,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
           btn.style.opacity = '1';
         } else {
           errorMsg.hidden = true;
-          window.location.href = 'index.html';
+          window.location.href = 'index.html#session=' + encodeURIComponent(JSON.stringify(data.session));
         }
       });
     } else {
