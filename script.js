@@ -1677,17 +1677,35 @@ async function fetchDatabaseHistory() {
   const baseUpdated = $('baseUpdated');
   if (baseUpdated) baseUpdated.textContent = 'Carregando dados da nuvem...';
   
-  const { data, error } = await window.appSupabase
-    .from('inadimplencia_history')
-    .select('*')
-    .order('data_base', { ascending: true });
-    
-  if (error) {
-    console.error('Erro ao buscar do Supabase', error);
-    alert('Não foi possível carregar os dados. Você criou a tabela no Supabase?');
-    return;
+  let allData = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await window.appSupabase
+      .from('inadimplencia_history')
+      .select('*')
+      .order('data_base', { ascending: true })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+      
+    if (error) {
+      console.error('Erro ao buscar do Supabase', error);
+      alert('Não foi possível carregar os dados. Você criou a tabela no Supabase?');
+      return;
+    }
+
+    if (data && data.length > 0) {
+      allData = allData.concat(data);
+      page++;
+      if (data.length < pageSize) hasMore = false;
+    } else {
+      hasMore = false;
+    }
   }
   
+  const data = allData;
+
   if (!data || data.length === 0) {
     state.history = [];
     state.allOpenRows = [];
