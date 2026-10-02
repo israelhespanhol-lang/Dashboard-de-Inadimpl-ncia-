@@ -210,6 +210,9 @@ function filterRows(rows){
 }
 
 function filteredTitles(){
+  const f = currentFilters();
+  if (f.status === 'PAGO (Histórico)') return historicalFilteredTitles();
+  
   const snapshots = selectedSnapshots();
   if (!snapshots.length) return [];
   return filterRows(snapshots.at(-1).overdue || []);
