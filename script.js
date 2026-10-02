@@ -115,6 +115,7 @@ function uniqueValues(field) {
   });
   (state.customerRegistry || []).forEach(r => { if (r[field]) values.add(r[field]); });
   (state.paymentBase || []).forEach(r => { if (r[field]) values.add(r[field]); });
+  if (field === 'status') values.add('PAGO (Histórico)');
   return ['Todos', ...[...values].sort((a, b) => String(a).localeCompare(String(b)))];
 }
 
@@ -212,6 +213,34 @@ function filteredTitles(){
   const snapshots = selectedSnapshots();
   if (!snapshots.length) return [];
   return filterRows(snapshots.at(-1).overdue || []);
+}
+
+function historicalFilteredTitles() {
+  const snapshots = selectedSnapshots();
+  if (!snapshots.length) return [];
+  
+  const map = new Map();
+  snapshots.forEach((snap, idx) => {
+    const isLatest = idx === snapshots.length - 1;
+    (snap.overdue || []).forEach(r => {
+      const key = `${r.cliente}-${r.documento}-${r.nf}`;
+      const existing = map.get(key);
+      if (!existing || Number(r.dias) >= Number(existing.dias)) {
+        map.set(key, { ...r, _isLatest: isLatest });
+      } else {
+        if (isLatest) existing._isLatest = true;
+      }
+    });
+  });
+
+  const result = [];
+  for (const r of map.values()) {
+    if (!r._isLatest && r.status !== 'RECUPERAÇÃO JUDICIAL') {
+      r.status = 'PAGO (Histórico)';
+    }
+    result.push(r);
+  }
+  return filterRows(result.sort((a,b) => new Date(b.vencimento) - new Date(a.vencimento)));
 }
 
 function monthKey(value){
@@ -888,7 +917,7 @@ async function importCustomerRegistry(file){
 }
 
 function renderTable(){
-  const rows = filteredTitles();
+  const rows = historicalFilteredTitles();
   $('rowCount').textContent = `${rows.length} registro${rows.length === 1 ? '' : 's'}`;
   const el = $('detailTable');
   if (!el) return;
@@ -940,7 +969,7 @@ function resetFilters(){
 }
 
 function exportCsv(){
-  const rows = filteredTitles();
+  const rows = historicalFilteredTitles();
   const header = importFields.map(f => f.label);
   const csv = [
     header.join(';'),
