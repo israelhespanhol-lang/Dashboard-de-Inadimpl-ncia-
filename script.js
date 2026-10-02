@@ -106,8 +106,16 @@ function groupBy(rows, field) {
 }
 
 function uniqueValues(field) {
-  const values = [...new Set(state.allOpenRows.map(r => r[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  return ['Todos', ...values];
+  const values = new Set();
+  (state.allOpenRows || []).forEach(r => { if (r[field]) values.add(r[field]); });
+  (state.overdueRows || []).forEach(r => { if (r[field]) values.add(r[field]); });
+  (state.history || []).forEach(snapshot => {
+    (snapshot.allOpen || []).forEach(r => { if (r[field]) values.add(r[field]); });
+    (snapshot.overdue || []).forEach(r => { if (r[field]) values.add(r[field]); });
+  });
+  (state.customerRegistry || []).forEach(r => { if (r[field]) values.add(r[field]); });
+  (state.paymentBase || []).forEach(r => { if (r[field]) values.add(r[field]); });
+  return ['Todos', ...[...values].sort((a, b) => String(a).localeCompare(String(b)))];
 }
 
 function fillSelect(id, values) {
