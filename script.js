@@ -1701,6 +1701,10 @@ async function init(){
           status.textContent = 'Enviando ' + (i + 1) + '/' + ordered.length + ': ' + snap.date;
           try {
             if (await exists(snap.date)) { skipped++; continue; }
+            if (!snap.hasOpenSheet || !snap.allOpen.length) {
+              warnings.push(snap.file + ' (' + snap.date + '): aba de carteira em aberto ausente ou vazia; importação bloqueada para evitar valores incorretos');
+              continue;
+            }
             const overdue = formatRows(snap.overdue, snap.date);
             const carteira = formatRows(snap.allOpen, snap.date);
             if (!overdue.length && !carteira.length) {
@@ -1913,7 +1917,7 @@ async function fetchDatabaseHistory() {
   state.history = history;
   const latest = history[history.length - 1];
   
-  state.allOpenRows = latest.overdue; // Sem a aba "em aberto", usamos os inadimplentes
+  state.allOpenRows = latest.allOpen;
   state.overdueRows = latest.overdue;
   state.sourceFile = 'Supabase Cloud DB';
   state.updatedAt = latest.date;
