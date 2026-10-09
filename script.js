@@ -1629,67 +1629,111 @@ async function init(){
   window.addEventListener('resize', renderAll);
   renderAll();
 
-  // NOVO FLUXO DE UPLOAD PARA O BANCO DE DADOS
+  // Importação de pastas e arquivos avulsos, sem modificar o parser.
   const dbUploadBtn = $('dbUploadBtn');
   const dbClearBtn = $('dbClearBtn');
-
+  const folderInput = $('dbFileInput');
+  const singleInput = $('dbSingleFileInput');
+  folderInput.addEventListener('change', () => { if (folderInput.files.length) singleInput.value = ''; });
+  singleInput.addEventListener('change', () => { if (singleInput.files.length) folderInput.value = ''; });
   if (dbUploadBtn) {
     dbUploadBtn.addEventListener('click', async () => {
-      const dateInput = $('dbDateInput').value;
-      const fileInput = $('dbFileInput').files[0];
-      
-      if (!dateInput) return alert('Por favor, selecione a Data de Referência (Data Base).');
-      if (!fileInput) return alert('Por favor, selecione a planilha do dia.');
-      
-      $('dbUploadStatus').textContent = 'Analisando planilha e enviando para o banco de dados... (Isso pode levar alguns segundos)';
+      const files = [...(folderInput.files.length ? folderInput.files : singleInput.files)]
+        .filter(f => /\.(xlsx|xls|csv)$/i.test(f.name) && !f.name.startsWith('~$'));
+      if (!files.length) return alert('Selecione uma pasta ou planilhas válidas.');
+      if (!window.appSupabase) return alert('Conexão Supabase indisponível.');
+      const status = $('dbUploadStatus');
+      const manualDate = $('dbDateInput').value;
+      const warnings = [];
+      const snapshots = new Map();
+      let saved = 0, skipped = 0;
       dbUploadBtn.disabled = true;
-
-      try {
-        const snapshot = await parseSnapshot(fileInput);
-        
-        // Formatar os dados para inserir no PostgreSQL
-        // Inserimos os que estao em overdue (inadimplentes)
-        const records = snapshot.overdue.map(r => ({
-          data_base: dateInput,
-          codigo: r.codigo,
-          cnpj: r.cnpj,
-          cliente: r.cliente,
-          documento: r.documento,
-          nf: r.nf,
-          emissao: r.emissao || null,
-          vencimento: r.vencimento || null,
-          valor: r.valor,
-          dias: r.dias,
-          observacoes: r.observacoes,
-          gestor: r.gestor
-        }));
-
-        if (records.length === 0) {
-           throw new Error('Nenhum registro de inadimplência encontrado na planilha.');
+      folderInput.disabled = true;
+      singleInput.disabled = true;
+      const formatRows = (rows, date) => rows.map(r => ({
+        data_base: date, codigo: r.codigo, cnpj: r.cnpj, cliente: r.cliente,
+        documento: r.documento, nf: r.nf, emissao: r.emissao || null,
+        vencimento: r.vencimento || null, valor: r.valor, dias: r.dias,
+        observacoes: r.observacoes, gestor: r.gestor
+      }));
+      const send = async (table, rows) => {
+        for (let i = 0; i < rows.length; i += 500) {
+          const { error } = await window.appSupabase.from(table).insert(rows.slice(i, i + 500));
+          if (error) throw new Error(table + ': ' + error.message);
         }
-
-        // Dividir em blocos menores caso seja muito grande
-        const chunkSize = 1000;
-        for (let i = 0; i < records.length; i += chunkSize) {
-          const chunk = records.slice(i, i + chunkSize);
-          const { error } = await window.appSupabase.from('inadimplencia_history').insert(chunk);
+      };
+      const exists = async date => {
+        for (const table of ['inadimplencia_history', 'carteira_history']) {
+          const { data, error } = await window.appSupabase.from(table)
+            .select('id').eq('data_base', date).limit(1);
           if (error) throw error;
+          if (data.length) return true;
         }
-
-        $('dbUploadStatus').textContent = '✅ Salvo com sucesso! Atualizando dashboard...';
-        
-        // Recarregar os dados
-        await fetchDatabaseHistory();
-        
-        alert(`Sucesso! ${records.length} registros foram salvos no banco para a data ${dateInput}.`);
-        $('dbFileInput').value = '';
-        
+        return false;
+      };
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          status.textContent = 'Processando ' + (i + 1) + '/' + files.length + ': ' + file.name;
+          try {
+            const snapshot = await parseSnapshot(file);
+            if (snapshot.date === '1970-01-01') {
+              if (files.length === 1 && manualDate) snapshot.date = manualDate;
+              else throw new Error('Data ausente no nome/caminho');
+            }
+            if (snapshots.has(snapshot.date)) {
+              warnings.push(file.name + ': data repetida na seleção (' + snapshot.date + ')');
+              continue;
+            }
+            snapshots.set(snapshot.date, snapshot);
+          } catch (err) {
+            warnings.push(file.name + ': ' + err.message);
+          }
+        }
+        if (!snapshots.size) throw new Error('Nenhum snapshot com data reconhecida.');
+        if (!confirm('Importar ' + snapshots.size + ' datas? Datas já presentes no banco serão ignoradas.')) {
+          status.textContent = 'Importação cancelada antes do envio.';
+          return;
+        }
+        const ordered = [...snapshots.values()].sort((a, b) => a.date.localeCompare(b.date));
+        for (let i = 0; i < ordered.length; i++) {
+          const snap = ordered[i];
+          status.textContent = 'Enviando ' + (i + 1) + '/' + ordered.length + ': ' + snap.date;
+          try {
+            if (await exists(snap.date)) { skipped++; continue; }
+            const overdue = formatRows(snap.overdue, snap.date);
+            const carteira = formatRows(snap.allOpen, snap.date);
+            if (!overdue.length && !carteira.length) {
+              warnings.push(snap.file + ': nenhuma linha válida');
+              continue;
+            }
+            await send('inadimplencia_history', overdue);
+            await send('carteira_history', carteira);
+            saved++;
+          } catch (err) {
+            warnings.push(snap.file + ' (' + snap.date + '): ' + err.message + ' — verifique carga parcial antes de tentar novamente');
+          }
+        }
+        if (saved && window.idbKeyval) {
+          for (const key of ['inadimplencia_cache_v2', 'carteira_cache_v1']) {
+            try { await idbKeyval.del(key); } catch (err) { console.warn(err); }
+          }
+        }
+        status.textContent = 'Carga concluída: ' + saved + ' datas salvas, ' + skipped +
+          ' existentes ignoradas, ' + warnings.length + ' avisos.';
+        if (warnings.length) {
+          console.warn('Importação:', warnings);
+          alert('Avisos da carga:\n' + warnings.slice(0, 10).join('\n'));
+        }
+        if (saved) await fetchDatabaseHistory();
+        if (!warnings.length) { folderInput.value = ''; singleInput.value = ''; }
       } catch (err) {
         console.error(err);
-        $('dbUploadStatus').textContent = `❌ Erro: ${err.message}`;
-        alert(`Erro ao processar: ${err.message}`);
+        status.textContent = 'Erro: ' + err.message;
       } finally {
         dbUploadBtn.disabled = false;
+        folderInput.disabled = false;
+        singleInput.disabled = false;
       }
     });
   }
