@@ -115,7 +115,7 @@ function uniqueValues(field) {
   });
   (state.customerRegistry || []).forEach(r => { if (r[field]) values.add(r[field]); });
   (state.paymentBase || []).forEach(r => { if (r[field]) values.add(r[field]); });
-  if (field === 'status') values.add('PAGO (Histórico)');
+  if (field === 'status' && !state.onlyLatestSnapshot) values.add('PAGO (Histórico)');
   return ['Todos', ...[...values].sort((a, b) => String(a).localeCompare(String(b)))];
 }
 
@@ -142,7 +142,9 @@ function updateYearSummary(){
   const selected = [...state.selectedYears].sort((a,b) => b.localeCompare(a));
   const summary = $('yearSummary');
   if (!summary) return;
-  summary.textContent = !selected.length || selected.length === years.length
+  summary.textContent = state.onlyLatestSnapshot
+    ? (years[0] || 'Posição atual') + ' (última posição)'
+    : !selected.length || selected.length === years.length
     ? 'Todos os anos'
     : selected.length <= 2
       ? selected.join(' e ')
@@ -1719,7 +1721,7 @@ async function init(){
           }
         }
         if (saved && window.idbKeyval) {
-          for (const key of ['inadimplencia_cache_v2', 'carteira_cache_v1']) {
+          for (const key of ['inadimplencia_cache_v3', 'carteira_cache_v2']) {
             try { await idbKeyval.del(key); } catch (err) { console.warn(err); }
           }
         }
@@ -1759,174 +1761,84 @@ async function init(){
 }
 
 // NOVA FUNÇÃO: BUSCAR DO BANCO
+
+// Carregamento rápido: consulta SOMENTE a data mais recente, não as 1,6 milhão
+// de linhas históricas. A evolução completa virá de resumos no servidor.
+async function fetchRowsOnDate_(table, date) {
+  const batch = [];
+  const size = 1000;
+  for (let page = 0; page < 100; page++) {
+    const { data, error } = await window.appSupabase.from(table)
+      .select('*').eq('data_base', date)
+      .order('id', { ascending:true })
+      .range(page * size, (page + 1) * size - 1);
+    if (error) throw new Error(table + ': ' + error.message);
+    batch.push(...(data || []));
+    if (!data || data.length < size) return batch;
+  }
+  throw new Error('Limite de paginação atingido em ' + table + '.');
+}
+
 async function fetchDatabaseHistory() {
   if (!window.appSupabase) return;
-  
   const baseUpdated = $('baseUpdated');
-  if (baseUpdated) baseUpdated.textContent = 'Carregando dados da nuvem...';
-  
-  let allData = [];
-  let lastCreatedAt = null;
-  const cacheKey = 'inadimplencia_cache_v2';
+  if (baseUpdated) baseUpdated.textContent = 'Consultando posição financeira mais recente…';
+  try {
+    // data_base está indexada: a última data é localizada sem transferir todo o histórico.
+    const { data: latestDates, error: latestError } = await window.appSupabase
+      .from('carteira_history')
+      .select('data_base')
+      .order('data_base', { ascending:false })
+      .limit(1);
+    if (latestError) throw latestError;
+    const date = latestDates?.[0]?.data_base;
+    if (!date) throw new Error('Nenhuma posição de carteira disponível para esta conta.');
 
-  if (window.idbKeyval) {
-    try {
-      const cached = await idbKeyval.get(cacheKey);
-      if (cached && cached.data) {
-        allData = cached.data;
-        lastCreatedAt = cached.lastCreatedAt;
-      }
-    } catch (e) {
-      console.warn("Erro ao ler cache", e);
-    }
-  }
+    const [openRows, overdueRows] = await Promise.all([
+      fetchRowsOnDate_('carteira_history', date),
+      fetchRowsOnDate_('inadimplencia_history', date)
+    ]);
+    if (!openRows.length) throw new Error('A carteira mais recente está vazia.');
 
-  let page = 0;
-  const pageSize = 1000;
-  let hasMore = true;
-  let fetchedNew = false;
-
-  while (hasMore) {
-    let query = window.appSupabase
-      .from('inadimplencia_history')
-      .select('*')
-      .order('created_at', { ascending: true })
-      .range(page * pageSize, (page + 1) * pageSize - 1);
-      
-    if (lastCreatedAt) {
-      query = query.gt('created_at', lastCreatedAt);
-    }
-
-    const { data, error } = await query;
-      
-    if (error) {
-      console.error('Erro ao buscar do Supabase', error);
-      if (allData.length === 0) {
-        alert('Não foi possível carregar os dados. Você criou a tabela no Supabase?');
-        return;
-      }
-      break; // Usa o cache se falhar
-    }
-
-    if (data && data.length > 0) {
-      allData = allData.concat(data);
-      fetchedNew = true;
-      page++;
-      if (data.length < pageSize) hasMore = false;
-    } else {
-      hasMore = false;
-    }
-  }
-
-  if (fetchedNew && window.idbKeyval && allData.length > 0) {
-    try {
-      const newLastCreatedAt = allData.reduce((max, r) => (r.created_at > max ? r.created_at : max), allData[0].created_at);
-      await idbKeyval.set(cacheKey, { data: allData, lastCreatedAt: newLastCreatedAt });
-    } catch (e) {
-      console.warn("Erro ao salvar cache", e);
-    }
-  }
-  
-  const data = allData;
-
-  if (!data || data.length === 0) {
+    const allOpen = openRows.map(row => enrichRow(row));
+    const overdue = overdueRows.map(row => enrichRow(row));
+    const history = [{
+      date, file:'Supabase Cloud DB — posição atual',
+      allOpen, overdue,
+      totalOpen:sum(allOpen.map(row => row.valor)),
+      totalOverdue:sum(overdue.map(row => row.valor)),
+      titles:overdue.length,
+      clients:new Set(overdue.map(row => row.cliente)).size
+    }];
+    state.history = history;
+    state.allOpenRows = allOpen;
+    state.overdueRows = overdue;
+    state.sourceFile = 'Supabase Cloud DB';
+    state.updatedAt = date;
+    state.onlyLatestSnapshot = true;
+    if (baseUpdated) baseUpdated.textContent =
+      'Posição atual: ' + showDate(date) + ' • histórico mensal ainda não carregado';
+    const notice = $('historyScopeNotice');
+    if (notice) notice.hidden = false;
+    refreshFilters();
+    refreshYearFilter();
+    renderAll();
+  } catch (error) {
+    console.error('Falha ao consultar posição financeira:', error);
     state.history = [];
     state.allOpenRows = [];
     state.overdueRows = [];
-    if (baseUpdated) baseUpdated.textContent = 'Banco de dados vazio. Importe o primeiro arquivo!';
-    renderAll();
-    return;
+    state.onlyLatestSnapshot = false;
+    if (baseUpdated) baseUpdated.textContent =
+      'Não foi possível consultar a nuvem: ' + (error.message || String(error));
+    const notice = $('historyScopeNotice');
+    if (notice) notice.hidden = true;
+    // Não mostrar números zerados como se os saldos reais fossem zero.
+    ['kpiSaldo','kpiIndice','kpi90','heroRisk'].forEach(id => {
+      if ($(id)) $(id).textContent = '—';
+    });
+    if ($('kpiClientes')) $('kpiClientes').textContent = '—';
   }
-  
-  // Agrupar os dados que vieram do banco pelo campo "data_base"
-  const byDate = new Map();
-  data.forEach(row => {
-     if (!byDate.has(row.data_base)) {
-        byDate.set(row.data_base, []);
-     }
-     byDate.get(row.data_base).push(row);
-  });
-  
-  // --- CARTEIRA HISTORY ---
-  let allCarteira = [];
-  let lastCarteiraCreated = null;
-  const cacheKeyCarteira = 'carteira_cache_v1';
-  if (window.idbKeyval) {
-    try {
-      const cachedC = await idbKeyval.get(cacheKeyCarteira);
-      if (cachedC && cachedC.data) {
-        allCarteira = cachedC.data;
-        lastCarteiraCreated = cachedC.lastCreatedAt;
-      }
-    } catch (e) { }
-  }
-
-  let pageC = 0;
-  let hasMoreC = true;
-  let fetchedNewC = false;
-  while (hasMoreC) {
-    let qC = window.appSupabase.from('carteira_history').select('*').order('created_at', { ascending: true }).range(pageC * pageSize, (pageC + 1) * pageSize - 1);
-    if (lastCarteiraCreated) qC = qC.gt('created_at', lastCarteiraCreated);
-    const { data: dataC, error: errC } = await qC;
-    if (errC) {
-      console.warn('Tabela carteira_history pode nao existir ainda ou erro:', errC);
-      break;
-    }
-    if (dataC && dataC.length > 0) {
-      allCarteira = allCarteira.concat(dataC);
-      fetchedNewC = true;
-      pageC++;
-      if (dataC.length < pageSize) hasMoreC = false;
-    } else {
-      hasMoreC = false;
-    }
-  }
-
-  if (fetchedNewC && window.idbKeyval && allCarteira.length > 0) {
-    try {
-      const newMax = allCarteira.reduce((m, r) => (r.created_at > m ? r.created_at : m), allCarteira[0].created_at);
-      await idbKeyval.set(cacheKeyCarteira, { data: allCarteira, lastCreatedAt: newMax });
-    } catch (e) { }
-  }
-
-  // Agrupar carteira
-  const byDateC = new Map();
-  allCarteira.forEach(row => {
-     if (!byDateC.has(row.data_base)) byDateC.set(row.data_base, []);
-     byDateC.get(row.data_base).push(row);
-  });
-
-  const history = [];
-  Array.from(byDate.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([date, rows]) => {
-     const overdue = rows.map(r => enrichRow(r));
-     const openRows = byDateC.get(date) || [];
-     const allOpen = openRows.map(r => enrichRow(r));
-     
-     history.push({
-       date: date,
-       file: 'Nuvem (Banco de Dados)',
-       allOpen: allOpen,
-       overdue: overdue,
-       totalOpen: allOpen.length > 0 ? sum(allOpen.map(r => r.valor)) : sum(overdue.map(r => r.valor)),
-       totalOverdue: sum(overdue.map(r => r.valor)),
-       titles: overdue.length,
-       clients: new Set(overdue.map(r => r.cliente)).size
-     });
-  });
-  
-  state.history = history;
-  const latest = history[history.length - 1];
-  
-  state.allOpenRows = latest.allOpen;
-  state.overdueRows = latest.overdue;
-  state.sourceFile = 'Supabase Cloud DB';
-  state.updatedAt = latest.date;
-  
-  if (baseUpdated) baseUpdated.textContent = `Dados em nuvem sincronizados! Base mais recente: ${showDate(latest.date)}`;
-  
-  refreshFilters();
-  refreshYearFilter();
-  renderAll();
 }
 
 document.addEventListener('DOMContentLoaded', init);
