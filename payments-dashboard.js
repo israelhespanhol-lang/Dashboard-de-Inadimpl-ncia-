@@ -141,7 +141,7 @@
     const onValue=on.reduce((a,r)=>a+r.value,0);
     const lateValue=late.reduce((a,r)=>a+r.value,0);
     const avg=late.length?late.reduce((a,r)=>a+r.delay,0)/late.length:0;
-    const maximum=late.length?Math.max(...late.map(r=>r.delay)):0;
+    const maximum=late.reduce((m,r)=>Math.max(m,r.delay),0);
     const recurring=groupedClients(rows).filter(r=>r.lateCount>=2).length;
     const empty=!state.data.length, noMatches=!rows.length;
     setText("payKpiTotal",empty?"—":money(total));
@@ -318,7 +318,12 @@
   function downloadCSV(rows){
     if(!rows.length)return;
     const header=["Cliente","Código cliente","Vendedor","SAP","Nota Fiscal","Emissão","Vencimento","Pagamento","Valor","Dias de atraso","Situação"];
-    const escCsv=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+    const escCsv=v=>{
+      const raw=String(v??"");
+      // Impede fórmula injetada ao abrir CSV em Excel/LibreOffice.
+      const safe=/^[\\s]*[=+@-]/.test(raw) && !/^-?\\d+(?:[.,]\\d+)?$/.test(raw.trim())?"'"+raw:raw;
+      return '"'+safe.replace(/"/g,'""')+'"';
+    };
     const content=[header,...rows.map(r=>[r.name,r.customer,r.seller,r.sap,r.invoice,r.issueDate,r.dueDate,r.payDate,r.value.toFixed(2).replace(".",","),r.delay,statusFor(r).label])]
       .map(cols=>cols.map(escCsv).join(";")).join("\r\n");
     const blob=new Blob(["\uFEFF"+content],{type:"text/csv;charset=utf-8;"});
