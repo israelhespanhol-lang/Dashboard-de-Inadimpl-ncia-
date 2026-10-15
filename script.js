@@ -1540,6 +1540,8 @@ async function init(){
       tabs.forEach(t => t.classList.remove('active'));
       link.classList.add('active');
       const targetId = link.getAttribute('href').substring(1);
+      // A aba de pagamentos possui seus próprios filtros e cabeçalho.
+      document.body.classList.toggle('show-payments-focus', targetId === 'historico-pagamentos');
       const targetTab = $(targetId);
       if (targetTab) {
         targetTab.classList.add('active');
@@ -1591,24 +1593,26 @@ async function init(){
 
   $('paymentHistoryMockBtn')?.addEventListener('click', () => {
     const mock = [];
+    const simulatedClients = ['AGRO VERDE SIMULADO','FAZENDA MODELO','CAMPO IDEAL EXEMPLO','TERRA NOVA FICTÍCIA','SERRA SUL SIMULADA','DISTRIBUIDORA DEMO','RURAL TESTE','CERRADO EXEMPLAR','AGROVITA FICTÍCIA','COOPERATIVA MODELO','COLHEITA EXEMPLO','VALE RURAL DEMO'];
+    const simulatedSellers = ['VENDEDOR DEMO A','VENDEDOR DEMO B','VENDEDOR DEMO C','VENDEDOR DEMO D'];
     const baseDate = new Date();
-    for (let i=0; i<400; i++) {
+    for (let i=0; i<420; i++) {
       const d = new Date(baseDate);
-      d.setDate(d.getDate() - Math.floor(Math.random() * 730)); // 2 years back
+      d.setDate(d.getDate() - Math.floor(Math.random() * 680));
       const pay = new Date(d);
-      const isLate = Math.random() > 0.6;
-      const delay = isLate ? Math.floor(Math.random() * 90) + 1 : -Math.floor(Math.random() * 5);
+      const isLate = Math.random() > 0.60;
+      const delay = isLate ? Math.floor(Math.random() * 85) + 1 : -Math.floor(Math.random() * 7);
       pay.setDate(pay.getDate() + delay);
-      
       mock.push({
-        customer: 'C001',
-        name: 'AGRO FORTTE EXEMPLO',
-        sap: '12345',
-        invoice: `NF-${1000+i}`,
+        customer: 'DEMO-'+String(i%simulatedClients.length+1).padStart(3,'0'),
+        name: simulatedClients[i%simulatedClients.length],
+        seller: simulatedSellers[i%simulatedSellers.length],
+        sap: 'SIM-'+String(10000+i),
+        invoice: 'NF-DEMO-'+(1000+i),
         issueDate: toIsoDate(new Date(d.getTime() - 86400000*30)),
         dueDate: toIsoDate(d),
         payDate: toIsoDate(pay),
-        value: 1000 + Math.random()*50000,
+        value: 3000 + Math.random()*75000,
         delay,
         status: delay > 0 ? 'Atrasado' : delay === 0 ? 'No Prazo' : 'Adiantado'
       });
