@@ -2011,10 +2011,10 @@ async function loadDailyRate(){
       && Number.isFinite(row.rate));
     normalized.sort((a,b)=>a.date.localeCompare(b.date));
     if(normalized.length===0)throw new Error('O resumo diário ainda está vazio. Execute a carga histórica no Supabase.');
+    const yearsBefore=availableYears();
     state.dailyRate=normalized;
     state.dailyRateReady=true;
-    const yearsBefore=availableYears();
-    const yearsAfter=[...new Set([...yearsBefore,...normalized.map(x=>x.date.slice(0,4))])];
+    const yearsAfter=availableYears();
     if(yearsAfter.length>yearsBefore.length)refreshYearFilter();
     const currentNotice=$('historyScopeNotice');
     if(currentNotice)currentNotice.textContent=
