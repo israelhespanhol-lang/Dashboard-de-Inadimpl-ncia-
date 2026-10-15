@@ -2008,11 +2008,28 @@ async function loadDailyRate(){
   state.dailyRateError=null;
   renderRateChart();
   try{
-    const {data,error}=await window.appSupabase.rpc('get_daily_inadimplencia_rate_audited');
-    if(request!==dailyRateRequest)return;
-    if(error)throw error;
-    if(!Array.isArray(data))throw new Error('RESPOSTA_TAXA_DIARIA_INVALIDA');
-    const normalized=data.map(row=>({
+    // Paginar: a API REST pode limitar a 1.000 linhas por resposta.
+    // Sem isso, a série terminava antes dos picos de março–agosto de 2026.
+    const pageSize=500;
+    const raw=[];
+    let fullyLoaded=false;
+    for(let page=0;page<100;page++){
+      const start=page*pageSize;
+      const {data,error}=await window.appSupabase
+        .rpc('get_daily_inadimplencia_rate_audited')
+        .order('snapshot_date',{ascending:true})
+        .range(start,start+pageSize-1);
+      if(request!==dailyRateRequest)return;
+      if(error)throw error;
+      if(!Array.isArray(data))throw new Error('RESPOSTA_TAXA_DIARIA_INVALIDA');
+      raw.push(...data);
+      if(data.length<pageSize){
+        fullyLoaded=true;
+        break;
+      }
+    }
+    if(!fullyLoaded)throw new Error('Série diária excedeu o limite de paginação seguro.');
+    const normalized=raw.map(row=>({
       date:String(row.snapshot_date||''),
       totalOpen:Number(row.total_open),
       totalOverdue:Number(row.total_overdue),
@@ -2026,6 +2043,10 @@ async function loadDailyRate(){
       && Number.isFinite(row.totalOverdue)
       && Number.isFinite(row.rate));
     normalized.sort((a,b)=>a.date.localeCompare(b.date));
+    if(normalized.length!==raw.length)
+      throw new Error('A série diária contém registros inválidos. Consulte a origem antes de calcular os picos.');
+    if(new Set(normalized.map(row=>row.date)).size!==normalized.length)
+      throw new Error('Datas duplicadas na série diária; a consulta precisa ser revisada.');
     if(normalized.length===0)throw new Error('O resumo diário ainda está vazio. Execute a carga histórica no Supabase.');
     const yearsBefore=availableYears();
     state.dailyRate=normalized;
