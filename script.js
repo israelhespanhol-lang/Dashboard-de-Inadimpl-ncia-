@@ -1613,9 +1613,15 @@ async function init(){
   refreshYearFilter();
 
   ['clienteFilter','gestorFilter','statusFilter','periodoFilter'].forEach(id => {
-    $(id)?.addEventListener('change', renderAll);
+    $(id)?.addEventListener('change', () => {
+      renderAll();
+      if (id === 'clienteFilter' || id === 'gestorFilter') scheduleMonthlyEvolution();
+    });
   });
-  $('globalSearch')?.addEventListener('input', renderAll);
+  $('globalSearch')?.addEventListener('input', () => {
+    renderAll();
+    scheduleMonthlyEvolution();
+  });
   $('resetBtn')?.addEventListener('click', resetFilters);
   $('exportBtn')?.addEventListener('click', exportCsv);
   $('templateBtn')?.addEventListener('click', downloadTemplate);
@@ -1783,6 +1789,8 @@ async function init(){
   
   window.addEventListener('resize', renderAll);
   renderAll();
+  // Busca ~60 resumos mensais, independentemente do total de títulos do banco.
+  void loadMonthlyEvolution();
 
   // Importação de pastas e arquivos avulsos, sem modificar o parser.
   const dbUploadBtn = $('dbUploadBtn');
@@ -1914,6 +1922,66 @@ async function init(){
 }
 
 // NOVA FUNÇÃO: BUSCAR DO BANCO
+
+
+let monthlyFetchRequest=0;
+let monthlyFilterTimer=null;
+async function loadMonthlyEvolution(){
+  if(!window.appSupabase)return;
+  const request=++monthlyFetchRequest;
+  const f=currentFilters();
+  state.monthlyEvolutionLoading=true;
+  state.monthlyEvolutionError=null;
+  const oldData=state.monthlyEvolution;
+  state.monthlyEvolution=null;
+  renderFinancialHistory();
+  try {
+    const {data,error}=await window.appSupabase.rpc('get_monthly_evolution',{
+      p_cliente:f.cliente==='Todos'?null:f.cliente,
+      p_gestor:f.gestor==='Todos'?null:f.gestor,
+      p_search:f.search||null
+    });
+    if(request!==monthlyFetchRequest)return;
+    if(error)throw error;
+    if(!Array.isArray(data))throw Error('RESPOSTA_HISTORICA_INVALIDA');
+    const normalized=data.map(r=>({
+      date:String(r.date),month:String(r.month),
+      totalOpen:Number(r.total_open),totalOverdue:Number(r.total_overdue),
+      rate:Number(r.rate),openCount:Number(r.open_count),overdueCount:Number(r.overdue_count)
+    })).filter(r=>/^\d{4}-\d{2}-\d{2}$/.test(r.month)&&
+      Number.isFinite(r.totalOpen)&&Number.isFinite(r.totalOverdue));
+    if(!normalized.length)throw Error('Não há posições históricas para os filtros escolhidos.');
+    normalized.sort((a,b)=>a.month.localeCompare(b.month));
+    state.monthlyEvolution=normalized;
+    const hadFullHistory=state.monthlyEvolutionReady;
+    state.monthlyEvolutionReady=true;
+    state.monthlyEvolutionError=null;
+    if(!hadFullHistory)refreshYearFilter();
+    const scope=$('historyScopeNotice');
+    if(scope)scope.textContent='Visão financeira atual: os cartões usam a posição mais recente. Evolução e Taxa mostram fechamentos históricos mensais consolidados, sem somar os arquivos diários.';
+    const baseUpdated=$('baseUpdated');
+    if(baseUpdated)baseUpdated.textContent='Posição atual: '+showDate(state.updatedAt)+
+      ' • '+normalized.length+' meses de evolução histórica disponíveis';
+  } catch(error){
+    if(request!==monthlyFetchRequest)return;
+    // Sem a migração SQL, evitar sugerir que uma única data representa toda a série.
+    state.monthlyEvolution=oldData&&oldData.length?oldData:null;
+    state.monthlyEvolutionError=
+      String(error?.code||'')==='PGRST202'||String(error?.message||'').includes('get_monthly_evolution')?
+      'Aguardando ativação do resumo histórico no Supabase.':'Histórico indisponível: '+(error?.message||String(error));
+    console.warn('Falha ao obter série mensal do Supabase:',error);
+  } finally {
+    if(request===monthlyFetchRequest){
+      state.monthlyEvolutionLoading=false;
+      renderFinancialHistory();
+      renderRateChart();
+    }
+  }
+}
+function scheduleMonthlyEvolution(){
+  if(monthlyFilterTimer)clearTimeout(monthlyFilterTimer);
+  monthlyFilterTimer=setTimeout(()=>{monthlyFilterTimer=null;void loadMonthlyEvolution();},350);
+}
 
 // Carregamento rápido: consulta SOMENTE a data mais recente, não as 1,6 milhão
 // de linhas históricas. A evolução completa virá de resumos no servidor.
