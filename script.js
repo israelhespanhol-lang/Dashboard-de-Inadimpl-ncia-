@@ -211,6 +211,22 @@ function filterRows(rows){
   });
 }
 
+
+// Filtra a carteira sem herdar o filtro de situação dos títulos vencidos.
+// A carteira total inclui títulos em dia e em atraso; excluir os em dia
+// fazia o KPI "Total em aberto" repetir o valor da inadimplência.
+function filterCarteiraRows(rows) {
+  const f = currentFilters();
+  return (rows || []).filter(r => {
+    const cliente = String(r.cliente || '');
+    const codigo = String(r.codigo || '');
+    return (f.cliente === 'Todos' || cliente === f.cliente) &&
+      (f.gestor === 'Todos' || r.gestor === f.gestor) &&
+      (!f.search || cliente.toLowerCase().includes(f.search) ||
+       codigo.toLowerCase().includes(f.search));
+  });
+}
+
 function filteredTitles(){
   const f = currentFilters();
   if (f.status === 'PAGO (Histórico)') return historicalFilteredTitles();
@@ -289,7 +305,7 @@ function financialHistoryData(){
   const snapshots = monthlySnapshots();
   const labels = snapshots.map(s => monthLabel(monthKey(s.date)));
   const open = snapshots.map(s => {
-    const sumAll = sum(filterRows(s.allOpen || []).map(r => r.valor));
+    const sumAll = sum(filterCarteiraRows(s.allOpen || []).map(r => r.valor));
     const sumOv = sum(filterRows(s.overdue || []).map(r => r.valor));
     return sumAll > 0 ? sumAll : sumOv;
   });
@@ -538,7 +554,7 @@ function setupFinancialInteraction(){
 
 function allRateData(){
   return selectedSnapshots().map(snapshot => {
-    const all = filterRows(snapshot.allOpen || []);
+    const all = filterCarteiraRows(snapshot.allOpen || []);
     const ov = filterRows(snapshot.overdue || []);
     const totalOpen = sum(all.map(r => r.valor));
     const totalOverdue = sum(ov.map(r => r.valor));
@@ -548,7 +564,7 @@ function allRateData(){
 
 function rateData(){
   return monthlySnapshots().map(snapshot => {
-    const all = filterRows(snapshot.allOpen || []);
+    const all = filterCarteiraRows(snapshot.allOpen || []);
     const ov = filterRows(snapshot.overdue || []);
     const totalOpen = sum(all.map(r => r.valor));
     const totalOverdue = sum(ov.map(r => r.valor));
@@ -636,7 +652,7 @@ function renderKpis(){
   const rows = filteredTitles();
   const snapshots = selectedSnapshots();
   const latest = snapshots.at(-1);
-  const allOpenFiltered = latest ? filterRows(latest.allOpen || []) : [];
+  const allOpenFiltered = latest ? filterCarteiraRows(latest.allOpen || []) : [];
   const sumAll = sum(allOpenFiltered.map(r => r.valor));
   const overdue = sum(rows.map(r => r.valor));
   const openTotal = sumAll > 0 ? sumAll : overdue;
