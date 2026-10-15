@@ -321,7 +321,9 @@
     const escCsv=v=>{
       const raw=String(v??"");
       // Impede fórmula injetada ao abrir CSV em Excel/LibreOffice.
-      const safe=/^[\\s]*[=+@-]/.test(raw) && !/^-?\\d+(?:[.,]\\d+)?$/.test(raw.trim())?"'"+raw:raw;
+      const dangerous=["=","+","@","-"].includes(raw.trimStart().charAt(0));
+      const isNumeric=/^-?[0-9]+([.,][0-9]+)?$/.test(raw.trim());
+      const safe=dangerous&&!isNumeric?"'"+raw:raw;
       return '"'+safe.replace(/"/g,'""')+'"';
     };
     const content=[header,...rows.map(r=>[r.name,r.customer,r.seller,r.sap,r.invoice,r.issueDate,r.dueDate,r.payDate,r.value.toFixed(2).replace(".",","),r.delay,statusFor(r).label])]
