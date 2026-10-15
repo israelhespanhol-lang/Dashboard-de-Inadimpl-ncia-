@@ -118,3 +118,8 @@
 @media(max-width:1100px) { .payments-filter-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }.payments-grid { grid-template-columns:1fr; }.payments-insights { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:760px) { .payments-head { padding:23px 20px; flex-direction:column; align-items:stretch; }.payments-head__actions { justify-content:flex-start; }.payments-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.payments-extra-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }.payments-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }.payments-panel { padding:16px; }.payments-donut-wrap { flex-direction:column; align-items:stretch; }.payments-donut { align-self:center; }.payments-insights { grid-template-columns:1fr; } }
 @media(max-width:470px) { .payments-filter-grid { grid-template-columns:1fr; }.payments-kpis { grid-template-columns:1fr; }.payments-band { grid-template-columns:54px minmax(0,1fr) 64px; }.payments-head h2 { font-size:26px; }.payments-btn { padding:9px 10px; font-size:11px; } }
+
+/* A aba de pagamentos tem filtros próprios: evitar o painel de filtros gerais duplicado. */
+body.show-payments-focus .hero,
+body.show-payments-focus .global-filters { display:none!important; }
+body.show-payments-focus .main { padding-top:22px; }
