@@ -376,3 +376,67 @@ function revokeRecentPilotImport() {
   PropertiesService.getScriptProperties().deleteProperty('ALLOW_PRODUCTION_WRITES');
   console.log('Autorização local de importação revogada. Nenhum dado ou registro de progresso foi apagado.');
 }
+
+
+/**
+ * FONTE ÚNICA - HISTÓRICO DE PAGAMENTOS.
+ * Configurar PAYMENTS_SOURCE_FILE_ID com o ID do XLSX no Google Drive e
+ * PAYMENTS_EDGE_FUNCTION_URL com a Edge Function drive-payments.
+ * O upload financeiro é sempre manual (sem acionadores).
+ * Segredos ficam exclusivamente nas Script Properties, não no navegador.
+ */
+function sendPaymentSource_(mode) {
+  const p=PropertiesService.getScriptProperties();
+  const id=p.getProperty('PAYMENTS_SOURCE_FILE_ID');
+  const url=p.getProperty('PAYMENTS_EDGE_FUNCTION_URL');
+  const secret=p.getProperty('BRIDGE_WEBHOOK_SECRET');
+  const sheetName=p.getProperty('PAYMENTS_SHEET_NAME') || '';
+  if(!id || !url || !/^https:\/\/[^ ]+\/functions\/v1\/drive-payments$/.test(url))
+    throw new Error('Configure PAYMENTS_SOURCE_FILE_ID e PAYMENTS_EDGE_FUNCTION_URL.');
+  if(!secret || secret.length<32)throw new Error('BRIDGE_WEBHOOK_SECRET ausente.');
+  if(mode==='commit' && p.getProperty('ALLOW_PAYMENTS_IMPORT')!=='YES')
+    throw new Error('Ative ALLOW_PAYMENTS_IMPORT=YES somente após a validação da fonte.');
+  const file=DriveApp.getFileById(id),name=file.getName();
+  if(!/\.xlsx$/i.test(name))
+    throw new Error('Converta a planilha .xls para .xlsx antes do envio, preservando os dados.');
+  const blob=file.getBlob(),bytes=blob.getBytes();
+  if(bytes.length>12000000)throw new Error('Arquivo acima de 12 MB: requer importação em blocos.');
+  const response=UrlFetchApp.fetch(url,{
+    method:'post',contentType:'application/json',
+    headers:{'x-bridge-secret':secret},
+    payload:JSON.stringify({
+      mode,fileId:id,fileName:name,sheetName,contentBase64:Utilities.base64Encode(bytes)
+    }),
+    muteHttpExceptions:true
+  });
+  const body=JSON.parse(response.getContentText());
+  if(response.getResponseCode()!==200)
+    throw new Error('HTTP '+response.getResponseCode()+': '+JSON.stringify(body));
+  if(mode==='validate' && body.status!=='VALIDATED_NO_WRITE')
+    throw new Error('O servidor não confirmou validação sem gravação.');
+  if(mode==='commit' && (body.status!=='IMPORTED' ||
+    !['INSERTED','REPLACED','UNCHANGED'].includes(body.database?.status)))
+    throw new Error('A gravação não foi confirmada pelo servidor.');
+  console.log('PAGAMENTOS '+mode.toUpperCase()+': '+JSON.stringify(body));
+  return body;
+}
+
+function validatePaymentSourceWorkbook() {
+  return sendPaymentSource_('validate');
+}
+
+// NÃO EXECUTAR ATÉ: arquivo validado, backup conferido, migração criada,
+// PAYMENTS_WRITE_ENABLED=true no Supabase e autorização explícita.
+function importPaymentSourceWorkbook() {
+  return sendPaymentSource_('commit');
+}
+
+// Habilita a opção local sem mudar BRIDGE_MODE nem gravar dados.
+function authorizePaymentSourceImport() {
+  PropertiesService.getScriptProperties().setProperty('ALLOW_PAYMENTS_IMPORT','YES');
+  console.log('Importação de pagamentos autorizada no Apps Script; nenhum dado foi gravado.');
+}
+function revokePaymentSourceImport() {
+  PropertiesService.getScriptProperties().deleteProperty('ALLOW_PAYMENTS_IMPORT');
+  console.log('Autorização local de pagamentos revogada.');
+}
