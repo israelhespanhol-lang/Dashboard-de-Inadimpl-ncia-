@@ -1351,119 +1351,66 @@ function loadInitialData(){
   $('baseUpdated').textContent = `Base: ${state.sourceFile}${state.updatedAt ? ` • ${state.updatedAt}` : ''}`;
 }
 
+
 async function parsePaymentSpreadsheet(file) {
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  
-  if (!rawRows.length) throw new Error('A planilha está vazia.');
-  
-  let headerRow = 0;
-  for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
-    const cols = rawRows[i].map(c => normalizeHeader(String(c)));
-    if (cols.includes('customer') || cols.includes('name') || cols.includes('payment date')) {
-      headerRow = i; break;
+  const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:true });
+  const result = [], warnings=[];
+  for(const sheetName of wb.SheetNames){
+    const sheet=wb.Sheets[sheetName];
+    const rawRows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
+    if(!rawRows.length)continue;
+    let header=-1;
+    for(let i=0;i<Math.min(rawRows.length,30);i++){
+      const fields=rawRows[i].map(c=>normalizeHeader(String(c)));
+      const hasClient=fields.some(x=>["name","nome","nome do cliente","razao social","cliente"].includes(x));
+      const hasPayment=fields.some(x=>["payment date","data do pagamento efetivo","data do pagamento","pagamento","data pagamento","data de pagamento"].includes(x));
+      if(hasClient&&hasPayment){header=i;break;}
     }
-  }
-  
-  const headers = rawRows[headerRow].map(c => normalizeHeader(String(c)));
-  const findCol = (...names) => headers.findIndex(h => names.includes(h));
-  
-  const colCustomer = findCol('customer', 'código', 'codigo do cliente', 'codigo');
-  const colName = findCol('name', 'nome', 'nome do cliente', 'razao social', 'cliente');
-  const colSap = findCol('sap number', 'sap', 'nº sap', 'no sap');
-  const colInvoice = findCol('invoice number', 'invoice', 'nota fiscal', 'nf');
-  const colIssue = findCol('invoice date', 'data de emissão', 'emissao');
-  const colDue = findCol('due date', 'data de vencimento', 'vencimento');
-  const colPay = findCol('payment date', 'data do pagamento efetivo', 'pagamento');
-  const colVal = findCol('invoice value', 'valor da nota', 'valor');
-
-  const parsed = [];
-  rawRows.slice(headerRow + 1).forEach((row) => {
-    const name = String(row[colName] || '').trim();
-    if (!name) return;
-    
-    const dueDate = toIsoDate(row[colDue]);
-    const payDate = toIsoDate(row[colPay]);
-    const value = parseMoney(row[colVal]);
-    
-    if (!dueDate || !payDate || isNaN(value)) return;
-    
-    const delay = Math.round((new Date(payDate) - new Date(dueDate)) / (1000 * 60 * 60 * 24));
-    let status = 'No Prazo';
-    if (delay > 0) status = 'Atrasado';
-    else if (delay < 0) status = 'Adiantado';
-    
-    parsed.push({
-      customer: String(row[colCustomer] || '').trim(),
-      name,
-      sap: String(row[colSap] || '').trim(),
-      invoice: String(row[colInvoice] || '').trim(),
-      issueDate: toIsoDate(row[colIssue]),
-      dueDate,
-      payDate,
-      value,
-      delay,
-      status
+    if(header<0)continue;
+    const headers=rawRows[header].map(c=>normalizeHeader(String(c)));
+    const findCol=(...names)=>headers.findIndex(h=>names.includes(h));
+    const colCustomer=findCol("customer","código","codigo do cliente","codigo","código do cliente");
+    const colName=findCol("name","nome","nome do cliente","razao social","cliente");
+    const colSeller=findCol("vendedor","gestor","responsavel","responsável","seller","sales rep","representante");
+    const colSap=findCol("sap number","sap","nº sap","no sap","documento sap");
+    const colInvoice=findCol("invoice number","invoice","nota fiscal","nf","número nf","numero nf");
+    const colIssue=findCol("invoice date","data de emissão","data emissao","emissao");
+    const colDue=findCol("due date","data de vencimento","vencimento","data vencimento");
+    const colPay=findCol("payment date","data do pagamento efetivo","data do pagamento","pagamento","data pagamento","data de pagamento");
+    const colVal=findCol("invoice value","valor da nota","valor","valor pago","valor recebido","amount");
+    if([colName,colDue,colPay,colVal].some(c=>c<0)){
+      warnings.push(sheetName+": faltam colunas de cliente, vencimento, pagamento ou valor.");
+      continue;
+    }
+    let invalid=0;
+    rawRows.slice(header+1).forEach(row=>{
+      const name=String(row[colName]||"").trim();
+      if(!name||/^total\b/i.test(name))return;
+      const dueDate=toIsoDate(row[colDue]),payDate=toIsoDate(row[colPay]);
+      const value=parseMoney(row[colVal]);
+      if(!dueDate||!payDate||!Number.isFinite(value)){invalid++;return;}
+      const delay=Math.round((Date.parse(payDate+"T00:00:00Z")-Date.parse(dueDate+"T00:00:00Z"))/86400000);
+      result.push({
+        customer:colCustomer>=0?String(row[colCustomer]||"").trim():"",
+        name,
+        seller:colSeller>=0?String(row[colSeller]||"").trim():"",
+        sap:colSap>=0?String(row[colSap]||"").trim():"",
+        invoice:colInvoice>=0?String(row[colInvoice]||"").trim():"",
+        issueDate:colIssue>=0?toIsoDate(row[colIssue]):"",
+        dueDate,payDate,value,delay,
+        status:delay>0?"Atrasado":delay<0?"Adiantado":"No Prazo"
+      });
     });
-  });
-  
-  state.paymentBase = parsed.sort((a,b) => a.payDate.localeCompare(b.payDate));
-  renderAll();
+    if(invalid)warnings.push(sheetName+": "+invalid+" linhas ignoradas por data/valor inválidos.");
+  }
+  if(!result.length)throw new Error("Nenhum pagamento válido. Verifique as colunas de cliente, vencimento, pagamento e valor.");
+  return {rows:result,warnings};
 }
-
 
 function renderPaymentHistory() {
-  const f = currentFilters();
-  const search = f.search;
-  
-  let rows = state.paymentBase;
-  if (search) {
-    rows = rows.filter(r => {
-      const name = r.name.toLowerCase();
-      const customer = r.customer.toLowerCase();
-      return name.includes(search) || customer.includes(search);
-    });
-  } else if (f.cliente !== 'Todos') {
-    rows = rows.filter(r => r.name.toLowerCase() === f.cliente.toLowerCase());
-  }
-  
-  const timeline = document.getElementById('paymentTimeline');
-  if (timeline) {
-    timeline.configure({
-      backgroundImage: "./assets/fundo-agro-limpo.png"
-    });
-    const mapped = rows.map((pt, i) => ({
-      id: i,
-      client: pt.name,
-      dueDate: pt.dueDate,
-      paymentDate: pt.payDate,
-      amount: pt.value,
-      daysDelay: pt.delay
-    }));
-    timeline.data = mapped;
-  }
-  
-  const tbody = $('paymentDetailTable');
-  if (tbody) {
-    const sorted = [...rows].sort((a,b) => b.delay - a.delay);
-    tbody.innerHTML = sorted.length 
-      ? sorted.slice(0, 100).map(r => `
-          <tr>
-            <td><strong>${escapeHtml(r.name)}</strong></td>
-            <td>${escapeHtml(r.sap || '—')}</td>
-            <td>${escapeHtml(r.invoice || '—')}</td>
-            <td>${showDate(r.issueDate)}</td>
-            <td>${showDate(r.dueDate)}</td>
-            <td>${showDate(r.payDate)}</td>
-            <td><span class="badge ${r.delay > 0 ? 'danger' : 'ok'}">${r.status}</span></td>
-            <td>${r.delay > 0 ? `+${r.delay}` : r.delay}</td>
-            <td>${fmtMoney.format(r.value)}</td>
-          </tr>
-        `).join('')
-      : '<tr><td colspan="9" class="empty-table">Nenhum título importado ou cliente não encontrado na base de pagamentos.</td></tr>';
-  }
+  if(window.PaymentDashboard)window.PaymentDashboard.render(state.paymentBase);
 }
+window.paymentDataReset=()=>{state.paymentBase=[];renderPaymentHistory();};
 
 async function init(){
   // Verificação de autenticação Supabase
@@ -1497,6 +1444,14 @@ async function init(){
      return;
   }
   
+  // Restaura somente a base de pagamentos local deste navegador.
+  // Nunca interpreta esses registros como sincronizados com o Supabase.
+  const savedPayments = await window.PaymentDashboard?.restore();
+  if(savedPayments?.rows?.length){
+    state.paymentBase=savedPayments.rows;
+    window.PaymentDashboard?.setSource("local",savedPayments.filename||"Histórico salvo neste navegador");
+  }
+
   refreshFilters();
   refreshYearFilter();
 
@@ -1602,14 +1557,35 @@ async function init(){
   setupRateInteraction();
   $('paymentHistoryImportBtn')?.addEventListener('click', () => $('paymentHistoryInput')?.click());
   $('paymentHistoryInput')?.addEventListener('change', async event => {
-    const file = event.target.files[0];
-    if (!file) return;
+    const files=[...event.target.files];
+    if(!files.length)return;
+    const button=$('paymentHistoryImportBtn');
+    if(button)button.disabled=true;
+    const warnings=[],merged=[];
     try {
-      await parsePaymentSpreadsheet(file);
-    } catch (e) {
-      alert('Erro na importação: ' + e.message);
-    } finally {
-      event.target.value = '';
+      for(const file of files){
+        if(!/\.(xlsx|xls|csv)$/i.test(file.name)){warnings.push(file.name+": formato não suportado.");continue;}
+        try {
+          const data=await parsePaymentSpreadsheet(file);
+          merged.push(...data.rows);
+          warnings.push(...data.warnings.map(w=>file.name+" — "+w));
+        }catch(error){warnings.push(file.name+": "+error.message);}
+      }
+      if(!merged.length)throw new Error("Nenhum pagamento válido encontrado nos arquivos escolhidos.");
+      // Uma seleção substitui a base local anterior; selecionar vários arquivos consolida o histórico.
+      state.paymentBase=merged.sort((a,b)=>a.payDate.localeCompare(b.payDate));
+      window.PaymentDashboard?.setSource("local",files.length===1?files[0].name:files.length+" arquivos selecionados");
+      await window.PaymentDashboard?.persist(state.paymentBase,files.length===1?files[0].name:files.length+" arquivos");
+      renderPaymentHistory();
+      if(warnings.length){
+        console.warn("Avisos na importação de pagamentos:",warnings);
+        alert(merged.length+" pagamentos carregados. "+warnings.length+" aviso(s). Verifique o console para detalhes.");
+      }
+    }catch(error){
+      alert("Erro ao importar pagamentos: "+error.message);
+    }finally{
+      if(button)button.disabled=false;
+      event.target.value="";
     }
   });
 
@@ -1638,8 +1614,8 @@ async function init(){
       });
     }
     state.paymentBase = mock.sort((a,b) => a.payDate.localeCompare(b.payDate));
-    if ($('globalSearch')) $('globalSearch').value = 'AGRO FORTTE';
-    renderAll();
+    window.PaymentDashboard?.setSource("demo","Exemplo ilustrativo fictício");
+    renderPaymentHistory();
   });
   
 
