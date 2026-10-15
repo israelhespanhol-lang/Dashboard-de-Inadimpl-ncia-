@@ -265,7 +265,13 @@ function updateControlBatch_(cfg, updates) {
       group.push(existing[i].row);
     sheet.getRange(start,1,group.length,12).setValues(group);
   }
-  if (additions.length) sheet.getRange(last+1,1,additions.length,12).setValues(additions);
+  if (additions.length) {
+    // O monitor começa com 1.000 linhas; expandir antes de acrescentar o histórico inteiro.
+    const needed = last + additions.length;
+    const capacity = sheet.getMaxRows();
+    if (needed > capacity) sheet.insertRowsAfter(capacity, needed - capacity);
+    sheet.getRange(last+1,1,additions.length,12).setValues(additions);
+  }
 }
 
 function installHourlyBridgeTrigger() {
