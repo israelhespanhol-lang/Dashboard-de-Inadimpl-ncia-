@@ -1849,6 +1849,7 @@ async function init(){
   renderAll();
   // Busca ~60 resumos mensais, independentemente do total de títulos do banco.
   void loadMonthlyEvolution();
+  void loadDailyRate();
 
   // Importação de pastas e arquivos avulsos, sem modificar o parser.
   const dbUploadBtn = $('dbUploadBtn');
@@ -1981,6 +1982,60 @@ async function init(){
 
 // NOVA FUNÇÃO: BUSCAR DO BANCO
 
+
+
+// Histórico diário separado do fechamento mensal. Carregado uma vez por sessão.
+// A RPC retorna no máximo algumas milhares de posições, não os títulos individuais.
+let dailyRateRequest=0;
+async function loadDailyRate(){
+  if(!window.appSupabase)return;
+  const request=++dailyRateRequest;
+  state.dailyRateLoading=true;
+  state.dailyRateError=null;
+  renderRateChart();
+  try{
+    const {data,error}=await window.appSupabase.rpc('get_daily_inadimplencia_rate');
+    if(request!==dailyRateRequest)return;
+    if(error)throw error;
+    if(!Array.isArray(data))throw new Error('RESPOSTA_TAXA_DIARIA_INVALIDA');
+    const normalized=data.map(row=>({
+      date:String(row.snapshot_date||''),
+      totalOpen:Number(row.total_open),
+      totalOverdue:Number(row.total_overdue),
+      rate:Number(row.rate),
+      openCount:Number(row.open_count),
+      overdueCount:Number(row.overdue_count)
+    })).filter(row=>/^\d{4}-\d{2}-\d{2}$/.test(row.date)
+      && Number.isFinite(row.totalOpen) && row.totalOpen>0
+      && Number.isFinite(row.totalOverdue)
+      && Number.isFinite(row.rate));
+    normalized.sort((a,b)=>a.date.localeCompare(b.date));
+    if(normalized.length===0)throw new Error('O resumo diário ainda está vazio. Execute a carga histórica no Supabase.');
+    state.dailyRate=normalized;
+    state.dailyRateReady=true;
+    const yearsBefore=availableYears();
+    const yearsAfter=[...new Set([...yearsBefore,...normalized.map(x=>x.date.slice(0,4))])];
+    if(yearsAfter.length>yearsBefore.length)refreshYearFilter();
+    const currentNotice=$('historyScopeNotice');
+    if(currentNotice)currentNotice.textContent=
+      'Visão geral: posição mais recente. Evolução: fechamentos mensais. Taxa: histórico diário de toda a empresa ('+
+      normalized.length+' datas carregadas), sem somar saldos de dias diferentes.';
+  }catch(error){
+    if(request!==dailyRateRequest)return;
+    state.dailyRate=null;
+    state.dailyRateReady=false;
+    state.dailyRateError=
+      String(error?.code||'')==='PGRST202'||String(error?.message||'').includes('get_daily_inadimplencia_rate')
+       ? 'Resumo diário ainda não habilitado no Supabase.'
+       : 'Não foi possível carregar a série diária: '+(error?.message||String(error));
+    console.warn('Falha na consulta do histórico diário:',error);
+  }finally{
+    if(request===dailyRateRequest){
+      state.dailyRateLoading=false;
+      renderRateChart();
+    }
+  }
+}
 
 let monthlyFetchRequest=0;
 let monthlyFilterTimer=null;
