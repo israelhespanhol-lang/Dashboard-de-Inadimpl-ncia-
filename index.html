@@ -11,7 +11,7 @@
   <link rel="icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="shortcut icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="stylesheet" href="./style.css?v=20260831" />
-  <link rel="stylesheet" href="./payments-dashboard.css?v=20261015-3" />
+  <link rel="stylesheet" href="./payments-dashboard.css?v=20261015-4" />
   <style>
     body { opacity: 0; transition: opacity 0.3s ease-in-out; }
     body.auth-checked { opacity: 1; }
@@ -475,9 +475,11 @@
               <option value="early">Antecipado</option>
               <option value="ontime">0 dias</option>
               <option value="1-7">1–7 dias</option>
-              <option value="8-30">8–30 dias</option>
+              <option value="8-15">8–15 dias</option>
+              <option value="16-30">16–30 dias</option>
               <option value="31-60">31–60 dias</option>
-              <option value="60+">Mais de 60 dias</option>
+              <option value="61-90">61–90 dias</option>
+              <option value="90+">Mais de 90 dias</option>
             </select>
           </label>
           <label>Valor mínimo (R$)
@@ -674,9 +676,9 @@
   <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-client.js"></script>
-  <script src="./compo-payment-timeline.js"></script>
-  <script src="./payments-dashboard.js?v=20261015-3"></script>
-  <script src="./script.js?v=20261015-payments-3"></script>
+  <script src="./compo-payment-timeline.js?v=20261015-2"></script>
+  <script src="./payments-dashboard.js?v=20261015-4"></script>
+  <script src="./script.js?v=20261015-payments-4"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
