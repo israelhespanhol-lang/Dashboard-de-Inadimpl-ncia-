@@ -254,18 +254,34 @@
   }
   function renderInsights(rows){
     const target=el("payInsights");if(!target)return;
-    if(!rows.length){target.innerHTML='<div class="payments-insight"><strong>Aguardando dados</strong><p>Importe uma planilha real para obter diagnósticos baseados nos pagamentos.</p></div>';return;}
-    const late=rows.filter(r=>r.delay>0),lateValue=late.reduce((a,r)=>a+r.value,0);
-    const severe=rows.filter(r=>r.delay>30),on=rows.filter(r=>r.delay<=0);
-    const ranked=groupedClients(rows).sort((a,b)=>b.lateValue-a.lateValue);
-    const most=ranked.find(x=>x.lateValue>0);
+    if(!rows.length){
+      target.innerHTML='<div class="payments-insight"><strong>Aguardando dados</strong><p>Importe uma planilha real para obter diagnósticos baseados nos pagamentos.</p></div>';
+      return;
+    }
+    const late=rows.filter(r=>r.delay>0);
+    const on=rows.filter(r=>r.delay<=0);
+    const lateValue=late.reduce((a,r)=>a+r.value,0);
+    const delayed=late.map(r=>r.delay).sort((a,b)=>a-b);
+    const median=delayed.length? (delayed.length%2?delayed[(delayed.length-1)/2]:
+      (delayed[delayed.length/2-1]+delayed[delayed.length/2])/2):0;
+    const after30=rows.filter(r=>r.delay>30),after60=rows.filter(r=>r.delay>60);
+    const sumReceived=items=>items.reduce((a,r)=>a+r.value,0);
+    const most=groupedClients(rows).sort((a,b)=>b.lateValue-a.lateValue).find(x=>x.lateValue>0);
+    const monthly=monthlyData(rows),last=monthly.at(-1),previous=monthly.at(-2);
+    const change=!previous?"São necessários pelo menos dois meses com registros.":
+      "O valor recebido variou "+(previous.total>0?pct((last.total-previous.total)/previous.total):"sem base percentual")+
+      " entre "+previous.month+" e "+last.month+". Meses parciais não são equivalentes.";
     const points=[
-      ["Pontualidade",on.length+" de "+rows.length+" pagamentos ocorreram até a data de vencimento ("+pct(on.length/rows.length)+")."],
-      ["Atrasos relevantes",severe.length+" pagamentos com mais de 30 dias de atraso, totalizando "+money(severe.reduce((a,r)=>a+r.value,0))+"."],
-      ["Concentração do atraso",most?
-        most.name+" representa "+pct(most.lateValue/(lateValue||1))+" do valor pago com atraso neste filtro.":"Nenhum cliente possui pagamentos em atraso neste filtro."]
+      ["Pontualidade",on.length+" de "+rows.length+" pagamentos ocorreram até o vencimento ("+pct(on.length/rows.length)+")."],
+      ["Atraso mediano",late.length?smallFmt.format(median)+" dias é a mediana de atraso entre os "+late.length+" títulos pagos fora do prazo.":"Não há pagamentos atrasados na seleção."],
+      ["Recebidos após 30 dias",after30.length+" pagamentos recebidos mais de 30 dias após vencer, somando "+money(sumReceived(after30))+"."],
+      ["Recebidos após 60 dias",after60.length+" pagamentos recebidos mais de 60 dias após vencer, somando "+money(sumReceived(after60))+"."],
+      ["Concentração por cliente",most?
+        most.name+" representa "+pct(most.lateValue/(lateValue||1))+" do valor pago com atraso neste filtro.":"Nenhum cliente possui pagamentos atrasados no período."],
+      ["Evolução recente",change]
     ];
-    target.innerHTML=points.map(p=>'<div class="payments-insight"><strong>'+escape(p[0])+'</strong><p>'+escape(p[1])+'</p></div>').join("");
+    target.innerHTML=points.map(p=>
+      '<div class="payments-insight"><strong>'+escape(p[0])+'</strong><p>'+escape(p[1])+'</p></div>').join("");
   }
   function sortedRows(rows){
     const key=state.orderBy,dir=state.orderDir==="desc"?-1:1;
