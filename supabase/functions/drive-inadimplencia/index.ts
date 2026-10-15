@@ -99,7 +99,8 @@ function sheetRecords(sheet: ExcelJS.Worksheet): RecordRow[] {
     if (!cliente || /^total(\s|$)/i.test(cliente)) continue;
     const valor = money(read(row, "valor"));
     const dias = Number(read(row, "dias"));
-    if (!Number.isFinite(valor) || valor < 0 || !Number.isInteger(dias)) {
+    // Créditos e ajustes contábeis podem ter valor negativo: preservar o sinal original.
+    if (!Number.isFinite(valor) || !Number.isInteger(dias)) {
       throw new Error("INVALID_VALUE_OR_DAYS: " + sheet.name + " row " + n);
     }
     rows.push({
