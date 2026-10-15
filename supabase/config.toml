@@ -1,0 +1,5 @@
+# A requisição é feita pelo Google Apps Script, não pelo navegador.
+# Autenticação customizada obrigatória: x-bridge-secret conferido contra BRIDGE_WEBHOOK_SECRET.
+# Nunca desabilite a checagem feita dentro da função.
+[functions.drive-inadimplencia]
+verify_jwt = false
