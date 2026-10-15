@@ -4,7 +4,7 @@
  * 1) Ative "Drive API" em Serviços do Apps Script (Advanced Drive Service v3).
  * 2) Configure Script Properties:
  *    DRIVE_ROOT_ID, EDGE_FUNCTION_URL, BRIDGE_WEBHOOK_SECRET (>=32 caracteres),
- *    BRIDGE_MODE=validate, BATCH_SIZE=10, START_DATE=2026-08-26.
+ *    BRIDGE_MODE=validate, BATCH_SIZE=10, START_DATE=2026-08-26, CONTROL_SHEET_ID (opcional).
  * 3) Rode runBridgeBatch manualmente. Só depois instale o gatilho.
  * 4) Nunca coloque chave service_role nem tokens no código.
  */
@@ -20,6 +20,7 @@ function bridgeConfig_() {
   const mode = p.getProperty('BRIDGE_MODE') === 'commit' ? 'commit' : 'validate';
   const batchSize = Math.max(1, Math.min(25, Number(p.getProperty('BATCH_SIZE') || '10')));
   const startDate = p.getProperty('START_DATE');
+  const controlSheetId = p.getProperty('CONTROL_SHEET_ID');
   if (!/^20\d\d-\d\d-\d\d$/.test(startDate || '')) throw new Error('Defina START_DATE=2026-08-26 na carga inicial.');
   if (!root || !url || !url.startsWith('https://') || !secret || secret.length < 32) {
     throw new Error('Script Properties incompletas: DRIVE_ROOT_ID, EDGE_FUNCTION_URL e BRIDGE_WEBHOOK_SECRET.');
@@ -28,7 +29,7 @@ function bridgeConfig_() {
   if (mode === 'commit' && p.getProperty('ALLOW_PRODUCTION_WRITES') !== 'YES') {
     throw new Error('Modo commit bloqueado. Configure ALLOW_PRODUCTION_WRITES=YES após os testes.');
   }
-  return {root, url, secret, mode, batchSize, startDate};
+  return {root, url, secret, mode, batchSize, startDate, controlSheetId};
 }
 
 function listSourceFiles_(rootId) {
@@ -67,6 +68,30 @@ function dateFromName_(name) {
   const iso = m[3] + '-' + m[2] + '-' + m[1];
   const dt = new Date(iso + 'T12:00:00Z');
   return !isNaN(dt.valueOf()) && dt.toISOString().slice(0,10) === iso ? iso : null;
+}
+
+function updateControl_(cfg, file, situation, summary, message) {
+  if (!cfg.controlSheetId) return;
+  try {
+    const sheet = SpreadsheetApp.openById(cfg.controlSheetId).getSheetByName('Sincronização');
+    if (!sheet) throw new Error('Aba Sincronização não localizada');
+    const last = sheet.getLastRow();
+    const ids = last > 1 ? sheet.getRange(2, 4, last - 1, 1).getValues() : [];
+    let index = ids.findIndex(r => String(r[0]) === file.id);
+    const fileMonth = String(file.path || '').split('/').slice(-2,-1)[0] || '';
+    const updated = [
+      file.date || '', file.name, fileMonth, file.id, file.modifiedTime || '',
+      situation, new Date().toISOString(),
+      summary?.carteiraCount ?? '', summary?.totalOpen ?? '',
+      summary?.overdueCount ?? '', summary?.totalOverdue ?? '',
+      String(message || '').slice(0,350)
+    ];
+    if (index >= 0) sheet.getRange(index + 2, 1, 1, updated.length).setValues([updated]);
+    else sheet.appendRow(updated);
+  } catch (error) {
+    // O monitor não deve interromper o processamento do financeiro.
+    console.warn('Falha ao atualizar monitor:', error.message);
+  }
 }
 
 function runBridgeBatch() {
@@ -125,6 +150,11 @@ function runBridgeBatch() {
       props.setProperty(key, fingerprint);
       props.deleteProperty(errorKey);
       success++;
+      const dbStatus = body.database?.status;
+      const situation = cfg.mode === 'validate' ? 'VALIDADO'
+        : dbStatus === 'REPLACED' ? 'REPROCESSADO'
+        : dbStatus === 'UNCHANGED' ? 'SEM ALTERAÇÃO' : 'IMPORTADO';
+      updateControl_(cfg, file, situation, body, '');
       console.log(JSON.stringify({
         status:body.status || body.database?.status, date:body.date,
         source:file.name, mode:cfg.mode,
@@ -135,6 +165,7 @@ function runBridgeBatch() {
       failed++;
       props.setProperty(errorKey, fingerprint + '|' + Date.now());
       errors.push(file.path + ': ' + err.message);
+      updateControl_(cfg, file, 'ERRO', null, err.message);
     }
   }
 
