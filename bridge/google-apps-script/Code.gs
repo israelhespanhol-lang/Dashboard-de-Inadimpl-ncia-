@@ -4,7 +4,7 @@
  * 1) Ative "Drive API" em Serviços do Apps Script (Advanced Drive Service v3).
  * 2) Configure Script Properties:
  *    DRIVE_ROOT_ID, EDGE_FUNCTION_URL, BRIDGE_WEBHOOK_SECRET (>=32 caracteres),
- *    BRIDGE_MODE=validate, BATCH_SIZE=10.
+ *    BRIDGE_MODE=validate, BATCH_SIZE=10, START_DATE=2026-08-26.
  * 3) Rode runBridgeBatch manualmente. Só depois instale o gatilho.
  * 4) Nunca coloque chave service_role nem tokens no código.
  */
@@ -19,6 +19,8 @@ function bridgeConfig_() {
   const secret = p.getProperty('BRIDGE_WEBHOOK_SECRET');
   const mode = p.getProperty('BRIDGE_MODE') === 'commit' ? 'commit' : 'validate';
   const batchSize = Math.max(1, Math.min(25, Number(p.getProperty('BATCH_SIZE') || '10')));
+  const startDate = p.getProperty('START_DATE');
+  if (!/^20\d\d-\d\d-\d\d$/.test(startDate || '')) throw new Error('Defina START_DATE=2026-08-26 na carga inicial.');
   if (!root || !url || !url.startsWith('https://') || !secret || secret.length < 32) {
     throw new Error('Script Properties incompletas: DRIVE_ROOT_ID, EDGE_FUNCTION_URL e BRIDGE_WEBHOOK_SECRET.');
   }
@@ -26,7 +28,7 @@ function bridgeConfig_() {
   if (mode === 'commit' && p.getProperty('ALLOW_PRODUCTION_WRITES') !== 'YES') {
     throw new Error('Modo commit bloqueado. Configure ALLOW_PRODUCTION_WRITES=YES após os testes.');
   }
-  return {root, url, secret, mode, batchSize};
+  return {root, url, secret, mode, batchSize, startDate};
 }
 
 function listSourceFiles_(rootId) {
@@ -59,10 +61,21 @@ function listSourceFiles_(rootId) {
   return files;
 }
 
+function dateFromName_(name) {
+  const m = name.match(/(?:^|\\D)(\\d{2})[.\\/_-]?(\\d{2})[.\\/_-]?(20\\d{2})(?:\\D|$)/);
+  if (!m) return null;
+  const iso = m[3] + '-' + m[2] + '-' + m[1];
+  const dt = new Date(iso + 'T12:00:00Z');
+  return !isNaN(dt.valueOf()) && dt.toISOString().slice(0,10) === iso ? iso : null;
+}
+
 function runBridgeBatch() {
   const cfg = bridgeConfig_();
   const props = PropertiesService.getScriptProperties();
-  const entries = listSourceFiles_(cfg.root);
+  const entries = listSourceFiles_(cfg.root).filter(file => {
+    file.date = dateFromName_(file.name);
+    return file.date && file.date >= cfg.startDate;
+  }).sort((a,b) => a.date.localeCompare(b.date));
   let success = 0, failed = 0, untouched = 0;
   const errors = [];
 
