@@ -133,19 +133,23 @@ function updateControl_(cfg, file, situation, summary, message) {
 }
 
 function runBridgeBatch() {
+  return runBridgeBatchWithConfig_(bridgeConfig_());
+}
+
+function runBridgeBatchWithConfig_(cfg) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
     console.log('Outra execução em andamento; este ciclo foi ignorado.');
     return {status:'LOCKED'};
   }
   try {
-    const cfg = bridgeConfig_();
     const props = PropertiesService.getScriptProperties();
     // Uma leitura de propriedades é mais econômica do que consultar cada arquivo isoladamente.
     const statuses = props.getProperties();
     const entries = cachedSourceFiles_(cfg.root).filter(file => {
       file.date = dateFromName_(file.name);
-      return file.date && file.date >= cfg.startDate;
+      return file.date && file.date >= cfg.startDate &&
+      (!cfg.endDate || file.date <= cfg.endDate);
     }).sort((a,b) => a.date.localeCompare(b.date));
 
     let success = 0, failed = 0, untouched = 0, deferred = 0;
@@ -311,4 +315,43 @@ function pauseRapidHistoryValidation() {
     .filter(t=>t.getHandlerFunction()==='runBridgeBatch')
     .forEach(t=>ScriptApp.deleteTrigger(t));
   console.log('Acionador suspenso. Histórico validado mantido.');
+}
+
+
+// CARGA CONTROLADA: não interfere com a validação agendada.
+// A fonte histórica anterior a 26/08/2026 não será alterada.
+function recentImportConfig_(batchSize, endDate) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('BRIDGE_MODE') !== 'validate') {
+    throw new Error('Mantenha BRIDGE_MODE=validate nos gatilhos automáticos.');
+  }
+  if (props.getProperty('ALLOW_PRODUCTION_WRITES') !== 'YES') {
+    throw new Error('Ative ALLOW_PRODUCTION_WRITES=YES somente depois da autorização da carga.');
+  }
+  const cfg = bridgeConfig_();
+  return {
+    ...cfg,
+    mode:'commit',
+    startDate:'2026-08-26',
+    endDate: endDate || '2026-10-14',
+    batchSize
+  };
+}
+
+// Importa apenas 26/08/2026; evita habilitar commit na execução automática.
+function runRecentPilotImport() {
+  const cfg = recentImportConfig_(1, '2026-08-26');
+  const report = runBridgeBatchWithConfig_(cfg);
+  console.log('PILOTO FINANCEIRO: '+JSON.stringify(report));
+  return report;
+}
+
+// Depois de conferir o resultado do piloto no Supabase e no site,
+// execute manualmente as próximas datas (até 14/10/2026), 3 por vez.
+// Nunca cria acionador de gravação automática.
+function runRecentImportBatch() {
+  const cfg = recentImportConfig_(3, '2026-10-14');
+  const report = runBridgeBatchWithConfig_(cfg);
+  console.log('CARGA RECENTE: '+JSON.stringify(report));
+  return report;
 }
