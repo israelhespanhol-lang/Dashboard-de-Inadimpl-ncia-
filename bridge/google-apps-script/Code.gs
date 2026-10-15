@@ -70,6 +70,44 @@ function dateFromName_(name) {
   return !isNaN(dt.valueOf()) && dt.toISOString().slice(0,10) === iso ? iso : null;
 }
 
+
+// Inventário em cache para não consultar 58 pastas a cada minuto.
+// CacheService limita cada item a 100 KB; fragmentamos em blocos menores.
+function cachedSourceFiles_(rootId) {
+  const cache = CacheService.getScriptCache();
+  const key = 'bridge_v4_' + rootId.slice(-12);
+  try {
+    const n = Number(cache.get(key + '_n'));
+    if (Number.isInteger(n) && n > 0 && n < 20) {
+      const keys = Array.from({length:n}, (_,i) => key + '_' + i);
+      const parts = cache.getAll(keys);
+      if (keys.every(k => typeof parts[k] === 'string')) {
+        return JSON.parse(keys.map(k => parts[k]).join(''))
+          .map(r => ({id:r[0],name:r[1],modifiedTime:r[2],path:r[3]}));
+      }
+    }
+  } catch (error) { console.warn('Cache de inventário indisponível:', error.message); }
+  const files = listSourceFiles_(rootId);
+  try {
+    const raw = JSON.stringify(files.map(f => [f.id,f.name,f.modifiedTime,f.path]));
+    const size = 75000;
+    const n = Math.ceil(raw.length / size);
+    const chunks = {};
+    for (let i = 0; i < n; i++) chunks[key + '_' + i] = raw.slice(i*size,(i+1)*size);
+    cache.putAll(chunks, 21600);
+    cache.put(key + '_n', String(n), 21600);
+  } catch (error) { console.warn('Não foi possível armazenar inventário:',error.message); }
+  return files;
+}
+
+function clearInventoryCache_() {
+  const root = PropertiesService.getScriptProperties().getProperty('DRIVE_ROOT_ID');
+  if (!root) return;
+  const cache = CacheService.getScriptCache(), key = 'bridge_v4_' + root.slice(-12);
+  const n = Number(cache.get(key + '_n') || 0);
+  cache.removeAll([key + '_n', ...Array.from({length:Math.min(20,n)},(_,i) => key + '_' + i)]);
+}
+
 function updateControl_(cfg, file, situation, summary, message) {
   if (!cfg.controlSheetId) return;
   try {
@@ -95,84 +133,139 @@ function updateControl_(cfg, file, situation, summary, message) {
 }
 
 function runBridgeBatch() {
-  const cfg = bridgeConfig_();
-  const props = PropertiesService.getScriptProperties();
-  const entries = listSourceFiles_(cfg.root).filter(file => {
-    file.date = dateFromName_(file.name);
-    return file.date && file.date >= cfg.startDate;
-  }).sort((a,b) => a.date.localeCompare(b.date));
-  let success = 0, failed = 0, untouched = 0;
-  const errors = [];
-
-  for (const file of entries) {
-    const key = 'done_' + file.id;
-    const fingerprint = cfg.mode + ':' + file.modifiedTime;
-    if (props.getProperty(key) === fingerprint) { untouched++; continue; }
-
-    // Arquivos com erro só são tentados novamente após 6h ou se forem alterados.
-    const errorKey = 'error_' + file.id;
-    const recentError = props.getProperty(errorKey);
-    if (recentError) {
-      const parts = recentError.split('|');
-      if (parts[0] === fingerprint && Date.now() - Number(parts[1]) < 6*60*60*1000) continue;
-    }
-    if (success + failed >= cfg.batchSize) break;
-
-    try {
-      const blob = DriveApp.getFileById(file.id).getBlob();
-      const payload = {
-        mode:cfg.mode,
-        fileId:file.id,
-        fileName:file.name,
-        modifiedTime:file.modifiedTime,
-        contentBase64:Utilities.base64Encode(blob.getBytes()),
-      };
-      const response = UrlFetchApp.fetch(cfg.url, {
-        method:'post',
-        contentType:'application/json',
-        headers:{'x-bridge-secret':cfg.secret},
-        payload:JSON.stringify(payload),
-        muteHttpExceptions:true,
-      });
-      let body;
-      try { body = JSON.parse(response.getContentText()); }
-      catch (_) { throw new Error('Resposta não-JSON: HTTP ' + response.getResponseCode()); }
-      if (response.getResponseCode() !== 200) {
-        throw new Error('HTTP ' + response.getResponseCode() + ': ' + (body.error || 'erro desconhecido') +
-          (body.detail ? ' / ' + body.detail : ''));
-      }
-      if (cfg.mode === 'validate' && body.status !== 'VALIDATED_NO_WRITE') {
-        throw new Error('Resposta inesperada em validate');
-      }
-      if (cfg.mode === 'commit' && !['INSERTED','REPLACED','UNCHANGED'].includes(body.database?.status)) {
-        throw new Error('Banco não confirmou gravação');
-      }
-      props.setProperty(key, fingerprint);
-      props.deleteProperty(errorKey);
-      success++;
-      const dbStatus = body.database?.status;
-      const situation = cfg.mode === 'validate' ? 'VALIDADO'
-        : dbStatus === 'REPLACED' ? 'REPROCESSADO'
-        : dbStatus === 'UNCHANGED' ? 'SEM ALTERAÇÃO' : 'IMPORTADO';
-      updateControl_(cfg, file, situation, body, '');
-      console.log(JSON.stringify({
-        status:body.status || body.database?.status, date:body.date,
-        source:file.name, mode:cfg.mode,
-        overdueCount:body.overdueCount, carteiraCount:body.carteiraCount,
-        totalOpen:body.totalOpen, totalOverdue:body.totalOverdue,
-      }));
-    } catch (err) {
-      failed++;
-      props.setProperty(errorKey, fingerprint + '|' + Date.now());
-      errors.push(file.path + ': ' + err.message);
-      updateControl_(cfg, file, 'ERRO', null, err.message);
-    }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    console.log('Outra execução em andamento; este ciclo foi ignorado.');
+    return {status:'LOCKED'};
   }
+  try {
+    const cfg = bridgeConfig_();
+    const props = PropertiesService.getScriptProperties();
+    // Uma leitura de propriedades é mais econômica do que consultar cada arquivo isoladamente.
+    const statuses = props.getProperties();
+    const entries = cachedSourceFiles_(cfg.root).filter(file => {
+      file.date = dateFromName_(file.name);
+      return file.date && file.date >= cfg.startDate;
+    }).sort((a,b) => a.date.localeCompare(b.date));
 
-  const report = {mode:cfg.mode, discovered:entries.length, processed:success,
-    errors:failed, alreadyProcessed:untouched, firstErrors:errors.slice(0,5)};
-  console.log(JSON.stringify(report));
-  return report;
+    let success = 0, failed = 0, untouched = 0, deferred = 0;
+    const errors = [];
+    const updates = [];
+    const changes = {};
+    const removals = [];
+
+    for (const file of entries) {
+      const key = 'done_' + file.id;
+      const fingerprint = cfg.mode + ':' + file.modifiedTime;
+      if (statuses[key] === fingerprint) { untouched++; continue; }
+
+      // A mesma versão com falha espera 10 minutos, para evitar loops de erro.
+      const errorKey = 'error_' + file.id;
+      const lastError = statuses[errorKey];
+      if (lastError) {
+        const sep = lastError.lastIndexOf('|');
+        const date = Number(lastError.slice(sep + 1));
+        if (lastError.slice(0,sep) === fingerprint && Date.now() - date < 10*60*1000) {
+          deferred++;
+          continue;
+        }
+      }
+      if (success + failed >= cfg.batchSize) break;
+
+      try {
+        const blob = DriveApp.getFileById(file.id).getBlob();
+        const response = UrlFetchApp.fetch(cfg.url, {
+          method:'post',
+          contentType:'application/json',
+          headers:{'x-bridge-secret':cfg.secret},
+          payload:JSON.stringify({
+            mode:cfg.mode, fileId:file.id, fileName:file.name,
+            modifiedTime:file.modifiedTime, contentBase64:Utilities.base64Encode(blob.getBytes()),
+          }),
+          muteHttpExceptions:true,
+        });
+        let body;
+        try { body = JSON.parse(response.getContentText()); }
+        catch (_) { throw new Error('HTTP '+response.getResponseCode()+' retornou conteúdo não-JSON'); }
+        if (response.getResponseCode() !== 200) {
+          throw new Error('HTTP '+response.getResponseCode()+': '+(body.error||'erro')+
+            (body.detail?' / '+body.detail:''));
+        }
+        if (cfg.mode === 'validate' && body.status !== 'VALIDATED_NO_WRITE')
+          throw new Error('A API não confirmou validação sem gravação');
+        if (cfg.mode === 'commit' && !['INSERTED','REPLACED','UNCHANGED'].includes(body.database?.status))
+          throw new Error('A API não confirmou operação no banco');
+
+        changes[key] = fingerprint;
+        if (lastError) removals.push(errorKey);
+        success++;
+        const dbStatus = body.database?.status;
+        updates.push({file,situation:cfg.mode==='validate'?'VALIDADO':
+          dbStatus==='REPLACED'?'REPROCESSADO':
+          dbStatus==='UNCHANGED'?'SEM ALTERAÇÃO':'IMPORTADO',
+          summary:body,message:''});
+      } catch (error) {
+        failed++;
+        changes[errorKey] = fingerprint+'|'+Date.now();
+        errors.push(file.path+': '+error.message);
+        updates.push({file,situation:'ERRO',summary:null,message:error.message});
+      }
+    }
+
+    // Um único acesso à planilha para cada lote (em vez de abrir o monitor 12 vezes).
+    updateControlBatch_(cfg, updates);
+    if (Object.keys(changes).length) props.setProperties(changes);
+    removals.forEach(key => props.deleteProperty(key));
+
+    const complete = success===0 && failed===0 && deferred===0 && untouched===entries.length;
+    const report = {mode:cfg.mode,discovered:entries.length,processed:success,
+      errors:failed,alreadyProcessed:untouched,deferred,complete,
+      firstErrors:errors.slice(0,5)};
+    console.log(JSON.stringify(report));
+
+    // Após completar a auditoria, volta ao acionador de 1 hora para detectar
+    // novos arquivos sem gastar recursos a cada minuto.
+    if (complete && cfg.mode === 'validate') {
+      clearInventoryCache_();
+      installHourlyBridgeTrigger();
+      console.log('Auditoria concluída. Acionador alterado automaticamente para 1 hora.');
+    }
+    return report;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateControlBatch_(cfg, updates) {
+  if (!cfg.controlSheetId || !updates.length) return;
+  const sheet = SpreadsheetApp.openById(cfg.controlSheetId).getSheetByName('Sincronização');
+  if (!sheet) throw new Error('Monitor: aba Sincronização não encontrada');
+  const last = sheet.getLastRow();
+  const ids = last>1 ? sheet.getRange(2,4,last-1,1).getValues().flat() : [];
+  const positions = new Map(ids.map((id,i) => [String(id),i+2]));
+  const existing = [];
+  const additions = [];
+  updates.forEach(({file,situation,summary,message}) => {
+    const month = String(file.path||'').split('/').slice(-2,-1)[0] || '';
+    const row = [file.date||'',file.name,month,file.id,file.modifiedTime||'',
+      situation,new Date().toISOString(),summary?.carteiraCount??'',
+      summary?.totalOpen??'',summary?.overdueCount??'',summary?.totalOverdue??'',
+      String(message||'').slice(0,350)];
+    const position=positions.get(file.id);
+    if (position) existing.push({position,row});
+    else {
+      additions.push(row);
+      positions.set(file.id,last+additions.length);
+    }
+  });
+  existing.sort((a,b) => a.position - b.position);
+  for (let i=0;i<existing.length;) {
+    const start=existing[i].position, group=[existing[i].row];
+    while (++i<existing.length && existing[i].position === start + group.length)
+      group.push(existing[i].row);
+    sheet.getRange(start,1,group.length,12).setValues(group);
+  }
+  if (additions.length) sheet.getRange(last+1,1,additions.length,12).setValues(additions);
 }
 
 function installHourlyBridgeTrigger() {
@@ -187,4 +280,29 @@ function uninstallBridgeTrigger() {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'runBridgeBatch')
     .forEach(t => ScriptApp.deleteTrigger(t));
+}
+
+
+// ATIVAÇÃO RÁPIDA: somente validação, jamais gravação financeira.
+function installRapidHistoryValidation() {
+  const p = PropertiesService.getScriptProperties();
+  if (p.getProperty('BRIDGE_MODE') !== 'validate') {
+    throw new Error('Aceleração permitida somente em BRIDGE_MODE=validate.');
+  }
+  bridgeConfig_();
+  p.setProperties({'START_DATE':'2022-01-01','BATCH_SIZE':'12'});
+  clearInventoryCache_();
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction()==='runBridgeBatch')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('runBridgeBatch').timeBased().everyMinutes(1).create();
+  console.log('MODO RÁPIDO: validação desde 2022, 12 arquivos/ciclo, execução a cada minuto.');
+}
+
+// Caso queira interromper o modo rápido, sem perder o que já foi validado.
+function pauseRapidHistoryValidation() {
+  ScriptApp.getProjectTriggers()
+    .filter(t=>t.getHandlerFunction()==='runBridgeBatch')
+    .forEach(t=>ScriptApp.deleteTrigger(t));
+  console.log('Acionador suspenso. Histórico validado mantido.');
 }
