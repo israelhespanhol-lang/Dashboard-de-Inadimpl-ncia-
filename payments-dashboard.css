@@ -38,6 +38,7 @@
 .payments-filter-tail { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap; }
 .payments-advanced { width:100%; }
 .payments-advanced summary { display:inline-flex; align-items:center; cursor:pointer; color:#1e7550; font-size:12px; font-weight:800; padding:5px 0; }
+.payments-extra-filters[hidden] { display:none!important; }
 .payments-extra-filters { display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:12px; border-top:1px solid #edf2e9; margin-top:10px; padding-top:15px; }
 .payments-check { display:flex!important; flex-direction:row!important; gap:8px!important; align-items:center; }
 .payments-check input { width:17px!important; height:17px!important; }
