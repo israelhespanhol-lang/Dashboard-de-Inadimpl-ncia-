@@ -536,15 +536,71 @@ function setupEvolutionInteraction(){
   canvas.addEventListener('mouseleave', () => { tooltip.hidden = true; });
 }
 
+
+const trendPctFormatter=new Intl.NumberFormat('pt-BR',{style:'percent',minimumFractionDigits:2,maximumFractionDigits:2});
+const trendPpFormatter=new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function showMonthlyTrend(data) {
+  const root=$('historicalTrendCards'),summary=$('historyInterpretation');
+  if(!root||!summary)return;
+  const series=selectedMonthlyEvolution();
+  if(series===null||!series.length){
+    root.innerHTML='';
+    summary.textContent=state.monthlyEvolutionLoading?
+      'Consultando os fechamentos mensais no Supabase…':
+      (state.monthlyEvolutionError||'Aguardando histórico mensal consolidado.');
+    return;
+  }
+  const current=series.at(-1);
+  const lastYearMonth=String(Number(current.month.slice(0,4))-1)+current.month.slice(4);
+  const previousYear=series.find(r=>r.month===lastYearMonth);
+  const first=series[0],reference=previousYear||first;
+  const currentRate=Number(current.rate),previousRate=Number(reference.rate);
+  const deltaPp=(currentRate-previousRate)*100;
+  const gapNow=Number(current.totalOpen)-Number(current.totalOverdue);
+  const gapBefore=Number(reference.totalOpen)-Number(reference.totalOverdue);
+  const badge=deltaPp>0.05?'Aumento da proporção vencida':
+    deltaPp < -0.05?'Redução da proporção vencida':'Proporção estável';
+  const cards=[
+    ['Taxa em '+monthLabel(reference.month.slice(0,7)),trendPctFormatter.format(previousRate)],
+    ['Taxa em '+monthLabel(current.month.slice(0,7)),trendPctFormatter.format(currentRate)],
+    ['Variação da taxa',(deltaPp>0?'+':'')+trendPpFormatter.format(deltaPp)+' p.p.'],
+    ['Distância atual entre saldos',fmtMoney.format(gapNow)]
+  ];
+  root.innerHTML=cards.map(([name,value])=>'<article class="trend-metric"><small>'+
+    escapeHtml(name)+'</small><strong>'+escapeHtml(value)+'</strong></article>').join('');
+  const note='Em '+monthLabel(reference.month.slice(0,7))+
+    ', '+trendPctFormatter.format(previousRate)+' da carteira em aberto estava inadimplente; em '+
+    monthLabel(current.month.slice(0,7))+', '+trendPctFormatter.format(currentRate)+'. '+
+    badge+'. A diferença nominal entre carteira e inadimplência passou de '+
+    fmtMoney.format(gapBefore)+' para '+fmtMoney.format(gapNow)+
+    '. Cada ponto representa a última posição registrada do mês, não a soma dos dias.';
+  summary.textContent=note;
+  if($('historicalRangeCaption'))$('historicalRangeCaption').textContent=
+    series.length+' fechamentos mensais • '+monthLabel(first.month.slice(0,7))+
+    ' a '+monthLabel(current.month.slice(0,7));
+}
+
 function renderFinancialHistory(){
-  const data = financialHistoryData();
-  const canvas = $('financialHistoryChart');
-  if (!canvas) return;
-  drawLineChart(canvas, data.labels, [
-    { data: data.open, color: colors.dark, width: 4, point: 5 },
-    { data: data.overdue, color: colors.green, width: 4, point: 5 }
+  const data=financialHistoryData();
+  const canvas=$('financialHistoryChart');
+  if(!canvas)return;
+  const hasHistorical=Array.isArray(state.monthlyEvolution) && state.monthlyEvolution.length>0;
+  const status=$('historicalDataStatus');
+  if(status){
+    status.textContent=state.monthlyEvolutionLoading?
+      'Consultando histórico mensal…':
+      hasHistorical?'Histórico consolidado em '+state.monthlyEvolution.length+' meses':
+      (state.monthlyEvolutionError || 'Histórico mensal ainda não habilitado no banco');
+    status.dataset.status=hasHistorical?'ready':state.monthlyEvolutionLoading?'loading':'pending';
+  }
+  const labels=data.labels.length?data.labels:['Sem dados'];
+  drawLineChart(canvas, labels, [
+    { data:data.open.length?data.open:[0], color:colors.dark, width:3, point:hasHistorical?3:5 },
+    { data:data.overdue.length?data.overdue:[0], color:colors.green, width:3, point:hasHistorical?3:5 }
   ]);
-  canvas._financialData = data;
+  canvas._financialData=data;
+  showMonthlyTrend(data);
 }
 
 function setupFinancialInteraction(){
@@ -570,7 +626,9 @@ function setupFinancialInteraction(){
       return;
     }
     const data = canvas._financialData;
-    tooltip.innerHTML = `<strong>${nearest.point.label}</strong><span>Total em aberto: ${fmtMoney.format(data.open[nearest.index])}</span><span>Total em atraso: ${fmtMoney.format(data.overdue[nearest.index])}</span>`;
+    const rate=data.rates?.[nearest.index] ??
+      (data.open[nearest.index]>0 ? data.overdue[nearest.index]/data.open[nearest.index] : 0);
+    tooltip.innerHTML = `<strong>${nearest.point.label} (${showDate(data.dates?.[nearest.index])})</strong><span>Carteira em aberto: ${fmtMoney.format(data.open[nearest.index])}</span><span>Em atraso: ${fmtMoney.format(data.overdue[nearest.index])}</span><span>Taxa: ${trendPctFormatter.format(rate)}</span>`;
     tooltip.style.left = `${Math.min(rect.width - 245, Math.max(8, nearest.point.x + 12))}px`;
     tooltip.style.top = '34px';
     tooltip.hidden = false;
