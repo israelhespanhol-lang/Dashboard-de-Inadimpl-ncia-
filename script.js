@@ -18,7 +18,11 @@ const state = {
   paymentBase: [],
   rjScope: 'financial',
   sourceFile: '',
-  updatedAt: ''
+  updatedAt: '',
+  monthlyEvolution: null,
+  monthlyEvolutionReady: false,
+  monthlyEvolutionLoading: false,
+  monthlyEvolutionError: null
 };
 
 const importFields = [
@@ -134,7 +138,10 @@ function refreshFilters() {
 }
 
 function availableYears(){
-  return [...new Set(state.history.map(s => String(s.date || '').slice(0,4)).filter(y => /^\d{4}$/.test(y)))].sort((a,b) => b.localeCompare(a));
+  const snapshots = state.history.map(s => String(s.date || '').slice(0,4));
+  const historic = (state.monthlyEvolution || []).map(s => String(s.month || '').slice(0,4));
+  return [...new Set([...snapshots,...historic].filter(y => /^\d{4}$/.test(y)))]
+    .sort((a,b) => b.localeCompare(a));
 }
 
 function updateYearSummary(){
@@ -142,7 +149,7 @@ function updateYearSummary(){
   const selected = [...state.selectedYears].sort((a,b) => b.localeCompare(a));
   const summary = $('yearSummary');
   if (!summary) return;
-  summary.textContent = state.onlyLatestSnapshot
+  summary.textContent = state.onlyLatestSnapshot && !state.monthlyEvolutionReady
     ? (years[0] || 'Posição atual') + ' (última posição)'
     : !selected.length || selected.length === years.length
     ? 'Todos os anos'
@@ -188,7 +195,11 @@ function currentFilters() {
 }
 
 function selectedSnapshots(){
-  let snapshots = state.history.filter(s => !state.selectedYears.size || state.selectedYears.has(String(s.date).slice(0,4))).sort((a,b) => a.date.localeCompare(b.date));
+  // Outros painéis continuam representando a posição atual, mesmo quando
+  // a aba Evolução seleciona anos históricos que não estão carregados em detalhe.
+  let snapshots = state.history.filter(s => state.onlyLatestSnapshot ||
+    !state.selectedYears.size || state.selectedYears.has(String(s.date).slice(0,4)))
+    .sort((a,b) => a.date.localeCompare(b.date));
   const months = currentFilters().periodo;
   if (months && snapshots.length) {
     const latest = new Date(`${snapshots.at(-1).date}T12:00:00`);
@@ -301,22 +312,38 @@ function monthlySnapshots(){
   return [...monthly.values()].sort((a,b) => a.date.localeCompare(b.date));
 }
 
+
+function selectedMonthlyEvolution(){
+  if(!Array.isArray(state.monthlyEvolution))return null;
+  let items=state.monthlyEvolution.filter(r=>
+    !state.selectedYears.size || state.selectedYears.has(String(r.month).slice(0,4)));
+  const months=currentFilters().periodo;
+  if(months && items.length){
+    const latest=new Date(items.at(-1).month+'T12:00:00Z');
+    const cutoff=new Date(Date.UTC(latest.getUTCFullYear(),latest.getUTCMonth()-months+1,1))
+      .toISOString().slice(0,10);
+    items=items.filter(r=>r.month>=cutoff);
+  }
+  return items;
+}
+
 function financialHistoryData(){
-  const snapshots = monthlySnapshots();
-  const labels = snapshots.map(s => monthLabel(monthKey(s.date)));
-  const open = snapshots.map(s => {
-    const sumAll = sum(filterCarteiraRows(s.allOpen || []).map(r => r.valor));
-    const sumOv = sum(filterRows(s.overdue || []).map(r => r.valor));
-    return sumAll > 0 ? sumAll : sumOv;
-  });
-  const overdue = snapshots.map((s, i) => {
-    const ov = filterRows(s.overdue || []).filter(r => Number(r.dias) > 0);
-    return sum(ov.map(r => r.valor));
-  });
+  const fromDb=selectedMonthlyEvolution();
+  if(fromDb!==null){
+    return {
+      labels:fromDb.map(r=>monthLabel(monthKey(r.month))),
+      open:fromDb.map(r=>Number(r.totalOpen)),
+      overdue:fromDb.map(r=>Number(r.totalOverdue)),
+      rates:fromDb.map(r=>Number(r.rate)),
+      dates:fromDb.map(r=>r.date)
+    };
+  }
+  const snapshots=monthlySnapshots();
   return {
-    labels: labels.length ? labels : ['Sem dados'],
-    open: open.length ? open : [0],
-    overdue: overdue.length ? overdue : [0]
+    labels:snapshots.map(s=>monthLabel(monthKey(s.date))),
+    open:snapshots.map(s=>sum(filterCarteiraRows(s.allOpen||[]).map(r=>r.valor))),
+    overdue:snapshots.map(s=>sum(filterRows(s.overdue||[]).filter(r=>r.dias>0).map(r=>r.valor))),
+    dates:snapshots.map(s=>s.date)
   };
 }
 
@@ -553,6 +580,11 @@ function setupFinancialInteraction(){
 }
 
 function allRateData(){
+  const fromDb=selectedMonthlyEvolution();
+  if(fromDb!==null)return fromDb.map(r=>({
+    date:r.date, totalOpen:Number(r.totalOpen),
+    totalOverdue:Number(r.totalOverdue),rate:Number(r.rate)
+  }));
   return selectedSnapshots().map(snapshot => {
     const all = filterCarteiraRows(snapshot.allOpen || []);
     const ov = filterRows(snapshot.overdue || []);
@@ -563,6 +595,11 @@ function allRateData(){
 }
 
 function rateData(){
+  const fromDb=selectedMonthlyEvolution();
+  if(fromDb!==null)return fromDb.map(r=>({
+    date:r.date, totalOpen:Number(r.totalOpen),
+    totalOverdue:Number(r.totalOverdue),rate:Number(r.rate)
+  }));
   return monthlySnapshots().map(snapshot => {
     const all = filterCarteiraRows(snapshot.allOpen || []);
     const ov = filterRows(snapshot.overdue || []);
