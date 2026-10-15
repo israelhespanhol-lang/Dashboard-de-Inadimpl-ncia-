@@ -17,7 +17,21 @@
     body.auth-checked { opacity: 1; }
     .history-scope-notice { padding: 12px 18px; margin: 10px 0 16px; border: 1px solid #d4e3cf; border-radius: 14px; color: #36513a; background: #f7faf5; font-size: 14px; line-height: 1.5; }
     .history-scope-notice[hidden] { display: none; }
-  </style>
+  
+    /* Evolução financeira histórica: explicação quantitativa e comparação por ano */
+    .history-overview { padding:18px 20px 4px; border:1px solid #e0eddb; background:#f7fbf5; border-radius:17px; margin:14px 0 19px; }
+    .history-overview__top { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:9px; font-size:12px; color:#586f5f; margin-bottom:13px; }
+    #historicalDataStatus { font-weight:800; color:#176b43; }
+    #historicalDataStatus[data-status="pending"] { color:#aa692a; }
+    .historical-trend-cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .trend-metric { border:1px solid #e3eee1; background:white; border-radius:13px; padding:14px 15px; min-width:0; }
+    .trend-metric small { display:block; color:#6e806e; font-weight:800; font-size:10px; margin-bottom:8px; text-transform:uppercase; letter-spacing:.025em; }
+    .trend-metric strong { display:block; font-size:clamp(17px,1.8vw,23px); line-height:1.25; color:#173b29; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+    .history-interpretation { color:#455f48; font-size:13px; line-height:1.75; padding:12px 0 0; margin:0 0 14px; }
+    @media(max-width:860px){.historical-trend-cards{grid-template-columns:repeat(2,minmax(0,1fr));}}
+    @media(max-width:480px){.historical-trend-cards{grid-template-columns:1fr;}}
+
+</style>
 </head>
 <body>
   <div class="top-strip">
@@ -220,8 +234,17 @@
           <div>
             <span class="section-kicker">Histórico financeiro</span>
             <h2>Evolução mensal dos valores em aberto e em atraso</h2>
-            <p class="chart-description">Compare o saldo total em aberto com o valor vencido registrado em cada mês.</p>
+            <p class="chart-description">Compare a carteira total e o saldo inadimplente em cada fechamento mensal, desde 2022. A taxa mostra como essa relação mudou ao longo do tempo.</p>
           </div>
+        </div>
+
+        <div class="history-overview">
+          <div class="history-overview__top">
+            <span id="historicalDataStatus" data-status="loading">Consultando histórico mensal…</span>
+            <span id="historicalRangeCaption">Comparação entre fechamentos mensais</span>
+          </div>
+          <div class="historical-trend-cards" id="historicalTrendCards"></div>
+          <p class="history-interpretation" id="historyInterpretation">A análise comparativa será exibida após carregar as posições históricas do banco.</p>
         </div>
         <div class="interactive-chart">
           <canvas id="financialHistoryChart" width="1280" height="390"></canvas>
@@ -230,7 +253,7 @@
         <div class="chart-legend">
           <span><i style="background:#245a24"></i>Total em aberto</span>
           <span><i style="background:#64b32e"></i>Total em atraso</span>
-          <span class="legend-note">Use o filtro de cliente para consultar seu histórico</span>
+          <span class="legend-note">Posição do último dia disponível em cada mês • filtro de cliente e vendedor aplicado à evolução</span>
         </div>
       </article>
     </section>
@@ -678,7 +701,7 @@
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js?v=20261015-2"></script>
   <script src="./payments-dashboard.js?v=20261015-cloud-1"></script>
-  <script src="./script.js?v=20261015-payments-cloud-1"></script>
+  <script src="./script.js?v=20261015-monthly-history-1"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
