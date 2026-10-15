@@ -707,7 +707,9 @@ function setupRateInteraction(){
       return;
     }
     const fmt = v => new Intl.NumberFormat('pt-BR', { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2 }).format(v);
-    tooltip.innerHTML = `<strong>${nearest.point.label} (${showDate(item.date)})</strong><span>Taxa: ${fmt(item.rate)}</span><span>Total em atraso: ${fmtMoney.format(item.totalOverdue)}</span><span>Total em aberto: ${fmtMoney.format(item.totalOpen)}</span>`;
+    const qualityNote=item.quality==='reconstructed_from_due_titles'?
+      '<small>Recalculada pelos títulos vencidos; importação original inconsistente.</small>':'';
+    tooltip.innerHTML = `<strong>${nearest.point.label} (${showDate(item.date)})</strong><span>Taxa: ${fmt(item.rate)}</span><span>Total em atraso: ${fmtMoney.format(item.totalOverdue)}</span><span>Total em aberto: ${fmtMoney.format(item.totalOpen)}</span>${qualityNote}`;
     tooltip.style.left = `${Math.min(rect.width - 250, Math.max(8, nearest.point.x + 12))}px`;
     tooltip.style.top = '34px';
     tooltip.hidden = false;
@@ -777,6 +779,7 @@ function renderRateChart(){
     if($('rateHistoryInterpretation'))$('rateHistoryInterpretation').textContent=
       state.dailyRateError || 'O gráfico exibirá todas as posições diárias quando o histórico for disponibilizado pelo Supabase.';
     if($('rateDailyRange'))$('rateDailyRange').textContent='Sem período carregado';
+    if($('rateReconstructionNotice'))$('rateReconstructionNotice').hidden=true;
     return;
   }
   const max=data.reduce((a,b)=>b.rate>a.rate?b:a,data[0]);
@@ -785,7 +788,9 @@ function renderRateChart(){
   const peakIndex=data.indexOf(max);
   const lowIndex=data.indexOf(min);
   const color=data.map((_,i)=>i===peakIndex?colors.danger:i===lowIndex?colors.dark:colors.green);
-  const points=data.map((_,i)=>i===peakIndex||i===lowIndex?7:2);
+  const points=data.map((row,i)=>
+    i===peakIndex||i===lowIndex?7:
+    row.quality==='reconstructed_from_due_titles'?4:2);
   canvas._rateData=data;
   drawLineChart(canvas,data.map((r,i)=>{
     // Rótulos compactos para caber a série diária; tooltip traz a data completa.
@@ -798,6 +803,15 @@ function renderRateChart(){
   $('rateMinDate').textContent=showDate(min.date);
   if($('rateDailyRange'))$('rateDailyRange').textContent=
     data.length+' dias de histórico • '+showDate(data[0].date)+' — '+showDate(current.date);
+  const reconstructed=data.filter(row=>row.quality==='reconstructed_from_due_titles');
+  const warning=$('rateReconstructionNotice');
+  if(warning){
+    warning.hidden=!reconstructed.length;
+    warning.textContent=reconstructed.length?
+      reconstructed.length+' data(s) com base de inadimplentes incorretamente igual à carteira foram reconstruídas a partir dos títulos com dias de atraso positivos: '+
+      reconstructed.map(row=>showDate(row.date)).join(', ')+
+      '. Valores originais preservados para auditoria; confira os arquivos de origem.':'';
+  }
   renderDailyRateNarrative(data,min,max);
 }
 
@@ -1994,7 +2008,7 @@ async function loadDailyRate(){
   state.dailyRateError=null;
   renderRateChart();
   try{
-    const {data,error}=await window.appSupabase.rpc('get_daily_inadimplencia_rate');
+    const {data,error}=await window.appSupabase.rpc('get_daily_inadimplencia_rate_audited');
     if(request!==dailyRateRequest)return;
     if(error)throw error;
     if(!Array.isArray(data))throw new Error('RESPOSTA_TAXA_DIARIA_INVALIDA');
@@ -2004,7 +2018,9 @@ async function loadDailyRate(){
       totalOverdue:Number(row.total_overdue),
       rate:Number(row.rate),
       openCount:Number(row.open_count),
-      overdueCount:Number(row.overdue_count)
+      overdueCount:Number(row.overdue_count),
+      quality:String(row.data_quality||'source'),
+      rawOverdue:row.raw_total_overdue===null?null:Number(row.raw_total_overdue)
     })).filter(row=>/^\d{4}-\d{2}-\d{2}$/.test(row.date)
       && Number.isFinite(row.totalOpen) && row.totalOpen>0
       && Number.isFinite(row.totalOverdue)
