@@ -62,7 +62,7 @@ function listSourceFiles_(rootId) {
 }
 
 function dateFromName_(name) {
-  const m = name.match(/(?:^|\\D)(\\d{2})[.\\/_-]?(\\d{2})[.\\/_-]?(20\\d{2})(?:\\D|$)/);
+  const m = name.match(/(?:^|\D)(\d{2})[.\/_-]?(\d{2})[.\/_-]?(20\d{2})(?:\D|$)/);
   if (!m) return null;
   const iso = m[3] + '-' + m[2] + '-' + m[1];
   const dt = new Date(iso + 'T12:00:00Z');
