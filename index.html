@@ -11,6 +11,7 @@
   <link rel="icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="shortcut icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="stylesheet" href="./style.css?v=20260831" />
+  <link rel="stylesheet" href="./payments-dashboard.css?v=20261015-1" />
   <style>
     body { opacity: 0; transition: opacity 0.3s ease-in-out; }
     body.auth-checked { opacity: 1; }
@@ -416,45 +417,221 @@
       <p class="rj-disclaimer">A consulta automática verifica a situação especial cadastral. Use a consulta oficial do CNJ como confirmação jurídica complementar.</p>
     </section>
 
-    <section class="card detail-card tab-pane" id="historico-pagamentos">
-      <div class="card-head">
-        <div>
-          <span class="section-kicker">Comportamento de Pagamento</span>
-          <h2>Histórico Financeiro Consolidado</h2>
-          <p class="chart-description">Importe a planilha consolidada para analisar a evolução do comportamento de pagamentos (Lead/Lag).</p>
-        </div>
-        <div class="rj-actions" style="margin-top: 0;">
-          <input id="paymentHistoryInput" type="file" accept=".xlsx,.xls,.csv" hidden>
-          <button class="secondary-btn" id="paymentHistoryMockBtn" type="button" style="margin-right: 8px;">Dados Demonstrativos</button>
-          <button class="primary-btn" id="paymentHistoryImportBtn" type="button">Importar Planilha Histórica</button>
-        </div>
-      </div>
-      
-      <compo-payment-timeline
-        id="paymentTimeline"
-        logo="./assets/compo-expert-logo.svg"
-        truck="./assets/compo-truck.png"
-        style="margin-top: 24px;">
-      </compo-payment-timeline>
 
-      <div class="table-wrap" style="margin-top: 24px; border-top: 1px solid #e6eee1; padding-top: 24px;">
-        <table>
-          <thead>
-            <tr>
-              <th>Cliente</th>
-              <th>SAP Number</th>
-              <th>Nota Fiscal</th>
-              <th>Emissão</th>
-              <th>Vencimento</th>
-              <th>Pagamento</th>
-              <th>Status</th>
-              <th>Dias</th>
-              <th>Valor (R$)</th>
-            </tr>
-          </thead>
-          <tbody id="paymentDetailTable"></tbody>
-        </table>
+    <section class="payments-root tab-pane" id="historico-pagamentos" aria-labelledby="paymentsHeading">
+      <header class="payments-head">
+        <div class="payments-head__main">
+          <span class="payments-eyebrow">Compo Expert • Inteligência de recebimentos</span>
+          <h2 id="paymentsHeading">Performance de Pagamentos</h2>
+          <p>Visão executiva de pontualidade, valores recebidos, atrasos e comportamento histórico de cada cliente.</p>
+        </div>
+        <div class="payments-head__actions">
+          <input id="paymentHistoryInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          <button class="payments-btn payments-btn--outline" id="paymentHistoryMockBtn" type="button">◈ Dados demonstrativos</button>
+          <button class="payments-btn payments-btn--lime" id="paymentHistoryImportBtn" type="button">↑ Importar planilha</button>
+          <button class="payments-btn" id="payExportBtn" type="button">↓ Exportar CSV</button>
+        </div>
+      </header>
+
+      <div class="payments-source" aria-live="polite">
+        <span id="paymentsSourceBadge" class="payments-source__badge" data-kind="empty">○ NENHUMA BASE IMPORTADA</span>
+        <span id="paymentsSourceCopy" class="payments-source__copy">Importe um arquivo XLSX/CSV para começar.</span>
+        <button type="button" id="paymentClearLocalBtn" class="payments-btn payments-btn--subtle" disabled>Limpar base local</button>
       </div>
+
+      <section class="payments-filters" aria-label="Filtros de pagamentos">
+        <div class="payments-section-top">
+          <div>
+            <span class="payments-section-kicker">Explore a carteira recebida</span>
+            <h3>Parâmetros de análise</h3>
+          </div>
+          <div class="payments-quick" role="group" aria-label="Período">
+            <button type="button" data-pay-period="30" aria-pressed="false">30 dias</button>
+            <button type="button" data-pay-period="90" aria-pressed="false">90 dias</button>
+            <button type="button" data-pay-period="year" aria-pressed="false">Ano atual</button>
+            <button type="button" data-pay-period="all" aria-pressed="true">Todo histórico</button>
+            <button type="button" data-pay-period="custom" aria-pressed="false">Personalizado</button>
+          </div>
+        </div>
+        <div class="payments-filter-grid">
+          <label>Cliente, NF ou SAP
+            <input type="search" id="paySearch" placeholder="Pesquise um cliente ou documento" autocomplete="off">
+          </label>
+          <label>Vendedor
+            <select id="paySeller"><option value="all">Todos os vendedores</option></select>
+          </label>
+          <label>Situação
+            <select id="payStatus">
+              <option value="all">Todos os pagamentos</option>
+              <option value="noDelay">Sem atraso</option>
+              <option value="early">Antecipados</option>
+              <option value="onTime">Na data</option>
+              <option value="late">Com atraso</option>
+            </select>
+          </label>
+          <label>Faixa de atraso
+            <select id="payDelayBand">
+              <option value="all">Todas as faixas</option>
+              <option value="early">Antecipado</option>
+              <option value="ontime">0 dias</option>
+              <option value="1-7">1–7 dias</option>
+              <option value="8-30">8–30 dias</option>
+              <option value="31-60">31–60 dias</option>
+              <option value="60+">Mais de 60 dias</option>
+            </select>
+          </label>
+          <label>Valor mínimo (R$)
+            <input id="payMinValue" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Qualquer valor">
+          </label>
+        </div>
+        <div class="payments-filter-tail">
+          <details class="payments-advanced">
+            <summary>Mais filtros e cruzamentos ▾</summary>
+            <div class="payments-extra-filters">
+              <label class="payments-check">
+                <input type="checkbox" id="payRecurring"> Clientes com atrasos recorrentes
+              </label>
+              <span class="payments-muted">Reincidência = dois ou mais pagamentos atrasados no período filtrado.</span>
+            </div>
+          </details>
+          <div id="payCustomDates" class="payments-extra-filters" hidden>
+            <label>Pagamento a partir de <input type="date" id="payFrom"></label>
+            <label>Até <input type="date" id="payTo"></label>
+          </div>
+          <button type="button" class="payments-btn payments-btn--subtle" id="payReset">↺ Limpar filtros</button>
+        </div>
+      </section>
+
+      <div class="payments-section-top" style="margin:6px 0 13px">
+        <div>
+          <span class="payments-section-kicker">Resumo executivo</span>
+          <h3>Indicadores financeiros</h3>
+        </div>
+        <span class="payments-muted" id="payRecordsCount">0 pagamentos</span>
+      </div>
+      <section class="payments-kpis" aria-label="Indicadores de pagamento">
+        <article class="payments-kpi">
+          <div class="payments-kpi__name">Valor recebido <span class="payments-kpi__icon">R$</span></div>
+          <div class="payments-kpi__value" id="payKpiTotal">—</div>
+          <div class="payments-kpi__desc" id="payKpiTotalHint">Aguardando arquivo</div>
+        </article>
+        <article class="payments-kpi">
+          <div class="payments-kpi__name">Pagamentos sem atraso <span class="payments-kpi__icon">✓</span></div>
+          <div class="payments-kpi__value" id="payKpiOn">—</div>
+          <div class="payments-kpi__desc" id="payKpiOnHint">Pagos no prazo ou antecipados</div>
+        </article>
+        <article class="payments-kpi payments-kpi--amber">
+          <div class="payments-kpi__name">Pagamentos atrasados <span class="payments-kpi__icon">↗</span></div>
+          <div class="payments-kpi__value" id="payKpiLate">—</div>
+          <div class="payments-kpi__desc" id="payKpiLateHint">Percentual em quantidade de títulos</div>
+        </article>
+        <article class="payments-kpi">
+          <div class="payments-kpi__name">Atraso médio <span class="payments-kpi__icon">◷</span></div>
+          <div class="payments-kpi__value" id="payKpiAvg">—</div>
+          <div class="payments-kpi__desc" id="payKpiAvgHint">Somente pagamentos atrasados</div>
+        </article>
+        <article class="payments-kpi payments-kpi--red">
+          <div class="payments-kpi__name">Maior atraso <span class="payments-kpi__icon">!</span></div>
+          <div class="payments-kpi__value" id="payKpiMax">—</div>
+          <div class="payments-kpi__desc" id="payKpiMaxHint">Dias entre vencimento e recebimento</div>
+        </article>
+        <article class="payments-kpi">
+          <div class="payments-kpi__name">Clientes reincidentes <span class="payments-kpi__icon">◎</span></div>
+          <div class="payments-kpi__value" id="payKpiRepeat">—</div>
+          <div class="payments-kpi__desc" id="payKpiRepeatHint">Clientes com 2+ pagamentos atrasados</div>
+        </article>
+      </section>
+
+      <div class="payments-grid">
+        <section class="payments-panel">
+          <div class="payments-panel__head">
+            <div><h3>Evolução mensal dos recebimentos</h3><p>Valor recebido por mês e participação dos pagamentos sem atraso</p></div>
+            <span class="payments-panel__hint">Últimos 12 meses com registros</span>
+          </div>
+          <div id="payMonthlyChart" class="payments-chart" aria-live="polite"></div>
+          <div class="payments-legend"><span><i class="payments-dot"></i>Valor recebido</span><span><i class="payments-dot payments-dot--line"></i>Pontualidade (%)</span></div>
+        </section>
+        <section class="payments-panel">
+          <div class="payments-panel__head">
+            <div><h3>Qualidade dos pagamentos</h3><p>Distribuição por dias entre vencimento e pagamento</p></div>
+          </div>
+          <div class="payments-donut-wrap">
+            <div class="payments-donut" id="payDonut" role="img" aria-label="Distribuição de pagamentos por pontualidade">
+              <div class="payments-donut__center"><strong id="payDonutPct">—</strong><span id="payDonutCaption">sem atraso</span></div>
+            </div>
+            <div id="payDonutLegend" class="payments-donut-list"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="payments-grid">
+        <section class="payments-panel">
+          <div class="payments-panel__head">
+            <div><h3>Faixas de atraso</h3><p>Volume de pagamentos por intervalo de dias</p></div>
+            <span class="payments-panel__hint">Quantidade de títulos</span>
+          </div>
+          <div class="payments-bands" id="payBands"></div>
+        </section>
+        <section class="payments-panel">
+          <div class="payments-panel__head">
+            <div><h3>Clientes com atrasos</h3><p>Ranking de pagamentos realizados após o vencimento</p></div>
+            <div class="payments-segment" role="group" aria-label="Classificar ranking">
+              <button type="button" data-pay-rank="value" aria-pressed="true">Valor</button>
+              <button type="button" data-pay-rank="delay" aria-pressed="false">Dias</button>
+              <button type="button" data-pay-rank="recurrence" aria-pressed="false">Recorrência</button>
+            </div>
+          </div>
+          <div class="payments-rankings" id="payRanking"></div>
+        </section>
+      </div>
+
+      <div class="payments-section-top">
+        <div><span class="payments-section-kicker">Insights automáticos</span><h3>O que merece atenção</h3></div>
+      </div>
+      <div class="payments-insights" id="payInsights"></div>
+
+      <details class="payments-timeline-details" id="paymentsTimelineDetails">
+        <summary><span><strong>◎ Linha do tempo interativa de pagamentos</strong>
+          <small>Visualização complementar: explore vencimento, recebimento e dias de atraso</small></span>
+          <span class="payments-panel__hint">Clique para expandir ▾</span>
+        </summary>
+        <div class="payments-timeline-inside">
+          <compo-payment-timeline id="paymentTimeline" logo="./assets/compo-expert-logo.svg" truck="./assets/compo-truck.png"></compo-payment-timeline>
+        </div>
+      </details>
+
+      <section class="payments-panel" aria-label="Pagamentos detalhados">
+        <div class="payments-table-head">
+          <div><span class="payments-section-kicker">Auditoria financeira</span><h3>Pagamentos detalhados</h3>
+          <span class="payments-muted">Clique no cabeçalho de uma coluna para ordenar os lançamentos.</span></div>
+          <div class="payments-table-actions">
+            <input type="search" id="payTableSearch" placeholder="Pesquisar nesta tabela">
+            <button type="button" id="payExportTableBtn" class="payments-btn payments-btn--subtle">↓ Exportar tabela</button>
+          </div>
+        </div>
+        <div class="payments-table-wrap">
+          <table class="payments-table">
+            <thead><tr>
+              <th><button type="button" data-sort="name">Cliente ↕</button></th>
+              <th><button type="button" data-sort="sap">SAP ↕</button></th>
+              <th><button type="button" data-sort="invoice">NF ↕</button></th>
+              <th><button type="button" data-sort="issueDate">Emissão ↕</button></th>
+              <th><button type="button" data-sort="dueDate">Vencimento ↕</button></th>
+              <th><button type="button" data-sort="payDate">Pagamento ↕</button></th>
+              <th><button type="button" data-sort="value">Valor ↕</button></th>
+              <th><button type="button" data-sort="delay">Dias ↕</button></th>
+              <th>Situação</th>
+              <th><button type="button" data-sort="seller">Vendedor ↕</button></th>
+            </tr></thead>
+            <tbody id="paymentDetailTable"></tbody>
+          </table>
+        </div>
+        <div class="payments-table-footer">
+          <span id="payTableInfo">0 registros</span>
+          <div><button type="button" id="payPagePrev">← Anterior</button> <button type="button" id="payPageNext">Próxima →</button></div>
+        </div>
+        <p class="payments-local-note">Esta aba analisa pagamentos efetivamente registrados na planilha importada. Valores recebidos não devem ser abatidos novamente da carteira em aberto, que já pode refletir baixas. Os arquivos não são enviados automaticamente ao Supabase.</p>
+      </section>
     </section>
 
     <section class="card detail-card tab-pane" id="detalhes">
@@ -488,7 +665,7 @@
   </main>
 
   <footer class="footer">
-    Interface demonstrativa em HTML, CSS e JavaScript separados — pronta para evoluir com API, banco de dados ou Power BI Embedded.
+    Compo Expert • Inteligência financeira e crédito. Informações sujeitas à validação das bases de origem.
   </footer>
 
   <script src="./assets/xlsx.mini.min.js?v=20260825-3"></script>
@@ -498,7 +675,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js"></script>
-  <script src="./script.js?v=20261015-carteira-2"></script>
+  <script src="./payments-dashboard.js?v=20261015-1"></script>
+  <script src="./script.js?v=20261015-payments-1"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
