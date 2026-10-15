@@ -61,3 +61,20 @@
 - O navegador atual ainda precisa evoluir para consultas agregadas: mais de 1,6 milhão de registros
   de carteira tornam arriscado carregar todo o histórico em memória.
 - Uma planilha renomeada com nova data requer conciliação manual da data antiga.
+
+## Modo rápido para validar todo o histórico (2022–2026)
+
+O código `bridge/google-apps-script/Code.gs` foi atualizado para acelerar a carga de validação.
+**O arquivo do GitHub não modifica automaticamente o projeto que já está aberto no Google Apps Script.**
+
+1. No projeto Apps Script existente, substituir integralmente o conteúdo de `Código.gs` pela versão atual do GitHub e salvar. Não modificar Script Properties sensíveis.
+2. Executar uma vez `installRapidHistoryValidation` no seletor de funções.
+3. Ela só funciona com `BRIDGE_MODE=validate`; define `START_DATE=2022-01-01` e `BATCH_SIZE=12`, remove o acionador horário antigo e cria UM acionador a cada minuto.
+4. A varredura das pastas é guardada em cache por até 6 horas, com divisão em partes. A lista pode ser reconstruída caso o cache expire.
+5. Cada execução usa LockService para impedir processamento simultâneo, guarda marcadores de arquivo, e atualiza o Monitor no Google Sheets em lote; erros têm retentativa após 10 minutos.
+6. Após validar todos os arquivos descobertos, a automação volta sozinha a uma execução por hora. Novos arquivos/alterações posteriores serão redescobertos.
+7. Para suspender antecipadamente sem perder progresso: executar `pauseRapidHistoryValidation`.
+
+**Estimativa de capacidade:** 12 arquivos/minuto = 720 arquivos/hora na hipótese de cada execução terminar em menos de um minuto. Na prática o processamento é limitado por Drive, Apps Script (quotas e limite de tempo) e Edge Functions. Para cerca de 1.100–1.200 arquivos, o piso matemático é ~95–100 ciclos (aprox. 1h35), podendo levar várias horas. Verificar em **Execuções** se houver falhas/limites de quota.
+
+**Atenção:** `VALIDADO` quer dizer que o Excel foi aceito e resumido pelo parser, **não** que foi reconciliado com as linhas históricas já armazenadas no Supabase. A conciliação de diferenças com o banco é uma etapa adicional. O modo rápido não insere nem corrige valores financeiros.
