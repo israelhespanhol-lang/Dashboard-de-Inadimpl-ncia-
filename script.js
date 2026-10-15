@@ -156,7 +156,7 @@ function updateYearSummary(){
   const selected = [...state.selectedYears].sort((a,b) => b.localeCompare(a));
   const summary = $('yearSummary');
   if (!summary) return;
-  summary.textContent = state.onlyLatestSnapshot && !state.monthlyEvolutionReady
+  summary.textContent = state.onlyLatestSnapshot && !state.monthlyEvolutionReady && !state.dailyRateReady
     ? (years[0] || 'Posição atual') + ' (última posição)'
     : !selected.length || selected.length === years.length
     ? 'Todos os anos'
