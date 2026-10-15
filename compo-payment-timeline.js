@@ -154,8 +154,9 @@
       if (!this._rows.length) return;
       const times = this._rows.map(r => +r.paymentDate).filter(Number.isFinite);
       if (!times.length) return;
-      let min = Math.min(...times);
-      let max = Math.max(...times);
+      // Grandes históricos podem ultrapassar o limite de argumentos de Math.min(...array).
+      const min = times.reduce((result, time) => Math.min(result, time), Infinity);
+      const max = times.reduce((result, time) => Math.max(result, time), -Infinity);
       const pad = Math.max(DAY * 20, (max-min) * 0.025);
       this._domainStart = min - pad;
       this._domainEnd = max + pad;
