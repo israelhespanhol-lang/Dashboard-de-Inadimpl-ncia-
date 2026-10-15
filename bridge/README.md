@@ -78,3 +78,19 @@ O código `bridge/google-apps-script/Code.gs` foi atualizado para acelerar a car
 **Estimativa de capacidade:** 12 arquivos/minuto = 720 arquivos/hora na hipótese de cada execução terminar em menos de um minuto. Na prática o processamento é limitado por Drive, Apps Script (quotas e limite de tempo) e Edge Functions. Para cerca de 1.100–1.200 arquivos, o piso matemático é ~95–100 ciclos (aprox. 1h35), podendo levar várias horas. Verificar em **Execuções** se houver falhas/limites de quota.
 
 **Atenção:** `VALIDADO` quer dizer que o Excel foi aceito e resumido pelo parser, **não** que foi reconciliado com as linhas históricas já armazenadas no Supabase. A conciliação de diferenças com o banco é uma etapa adicional. O modo rápido não insere nem corrige valores financeiros.
+
+## Importação supervisionada dos arquivos recentes (2026-08-26 a 2026-10-14)
+
+34 arquivos recentes: 31 VALIDADOS; 3 ERROS (21, 22 e 25 de setembro de 2026, por nomes de aba escritos incorretamente). Histórico anterior a 2026-08-26 NÃO deve ser sobrescrito.
+
+1. Confirmar backup/ponto de restauração no Supabase.
+2. Configurar Edge Functions Secrets: BRIDGE_WRITE_ENABLED = true, sem expor outras chaves.
+3. Substituir Código.gs no Apps Script pela última versão deste repositório.
+4. Manter BRIDGE_MODE = validate e START_DATE = 2022-01-01 nas propriedades. Definir ALLOW_PRODUCTION_WRITES = YES conscientemente.
+5. Executar manualmente runRecentPilotImport. Esta função importa SOMENTE 2026-08-26 em commit, usando a RPC transacional e sem mudar o acionador de validação.
+6. Confirmar processed:1 errors:0 no log e status IMPORTADO ou SEM ALTERAÇÃO no monitor. Confirmar no banco 1.244 títulos da carteira (R$ 72.811.274,25) e 66 inadimplentes (R$ 13.286.506,56), conferindo resultado também no dashboard.
+7. Após o piloto, executar manualmente runRecentImportBatch (3 arquivos por execução) até completar as datas válidas de 2026-08-26 até 2026-10-14. Os três arquivos com erro só poderão ser processados após publicação da correção do parser.
+8. Verificar inadimplencia_source_versions e inadimplencia_source_audit, as duas tabelas de histórico e indicadores do site; não declarar sucesso sem esta verificação.
+9. Depois da carga, desabilitar temporariamente escrita no servidor BRIDGE_WRITE_ENABLED=false e remover ALLOW_PRODUCTION_WRITES do Apps Script até fechar a conciliação.
+
+IMPORTANTE: modo validate não importa; apenas a função commit supervisionada grava. Não mudar BRIDGE_MODE global para commit com o trigger horário ligado. A carga dos históricos de 2022-2026 tem bloqueios por data já existente.
