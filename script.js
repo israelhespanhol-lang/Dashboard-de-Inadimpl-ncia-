@@ -22,7 +22,11 @@ const state = {
   monthlyEvolution: null,
   monthlyEvolutionReady: false,
   monthlyEvolutionLoading: false,
-  monthlyEvolutionError: null
+  monthlyEvolutionError: null,
+  dailyRate: null,
+  dailyRateLoading: false,
+  dailyRateError: null,
+  dailyRateReady: false
 };
 
 const importFields = [
@@ -139,7 +143,10 @@ function refreshFilters() {
 
 function availableYears(){
   const snapshots = state.history.map(s => String(s.date || '').slice(0,4));
-  const historic = (state.monthlyEvolution || []).map(s => String(s.month || '').slice(0,4));
+  const historic = [
+    ...(state.monthlyEvolution || []).map(s => String(s.month || '').slice(0,4)),
+    ...(state.dailyRate || []).map(s => String(s.date || '').slice(0,4))
+  ];
   return [...new Set([...snapshots,...historic].filter(y => /^\d{4}$/.test(y)))]
     .sort((a,b) => b.localeCompare(a));
 }
@@ -709,42 +716,89 @@ function setupRateInteraction(){
   canvas.addEventListener('mouseleave', () => { tooltip.hidden = true; });
 }
 
-function renderRateChart(){
-  const allData = allRateData();
-  const data = rateData();
-  const format = value => new Intl.NumberFormat('pt-BR', { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2 }).format(value);
-  const canvas = $('rateChart');
-  if (!canvas) return;
 
-  if (!allData.length || !data.length) {
-    drawLineChart(canvas, ['Sem dados'], [{ data:[0], color:colors.green, width:4 }], { percent:true });
-    $('rateCurrent').textContent = 'Atual: —';
-    $('rateMax').textContent = '—';
-    $('rateMin').textContent = '—';
-    $('rateMaxDate').textContent = '—';
-    $('rateMinDate').textContent = '—';
+function selectedDailyRates(){
+  if(!Array.isArray(state.dailyRate))return [];
+  const period=currentFilters().periodo;
+  let records=state.dailyRate.filter(s=>
+    !state.selectedYears.size || state.selectedYears.has(String(s.date).slice(0,4)));
+  if(period && records.length){
+    const last=new Date(records.at(-1).date+'T12:00:00Z');
+    const cutoff=new Date(Date.UTC(last.getUTCFullYear(),last.getUTCMonth()-period+1,1))
+      .toISOString().slice(0,10);
+    records=records.filter(s=>s.date>=cutoff);
+  }
+  return records;
+}
+function renderDailyRateNarrative(data,min,max){
+  const root=$('rateHistoryInterpretation');
+  if(!root)return;
+  if(data.length<2){
+    root.textContent='É necessário ter pelo menos duas posições financeiras para analisar a variação da taxa.';
     return;
   }
-
-  const max = allData.reduce((a,b) => b.rate > a.rate ? b : a);
-  const min = allData.reduce((a,b) => b.rate < a.rate ? b : a);
-  const current = allData.at(-1);
-
-  const maxMonthKey = monthKey(max.date);
-  const minMonthKey = monthKey(min.date);
-  const maxIndex = data.findIndex(s => monthKey(s.date) === maxMonthKey);
-  const minIndex = data.findIndex(s => monthKey(s.date) === minMonthKey);
-
-  const pointColors = data.map((_,i) => i === maxIndex ? colors.danger : i === minIndex ? colors.dark : colors.green);
-  const pointSizes = data.map((_,i) => i === maxIndex || i === minIndex ? 7 : 4);
-
-  canvas._rateData = data;
-  drawLineChart(canvas, data.map(s => monthLabel(monthKey(s.date))), [{ data: data.map(s => s.rate), color: colors.green, width: 4, pointColors, pointSizes }], { percent: true });
-  $('rateCurrent').textContent = `Posição (${showDate(current.date)}): ${format(current.rate)}`;
-  $('rateMax').textContent = format(max.rate);
-  $('rateMaxDate').textContent = showDate(max.date);
-  $('rateMin').textContent = format(min.rate);
-  $('rateMinDate').textContent = showDate(min.date);
+  const first=data[0],last=data.at(-1);
+  const delta=100*(last.rate-first.rate);
+  const direction=delta>0.005?'cresceu':delta< -0.005?'diminuiu':'ficou praticamente estável';
+  const pct=new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  root.textContent='Entre '+showDate(first.date)+' e '+showDate(last.date)+
+    ', a taxa '+direction+' '+pct.format(Math.abs(delta))+' ponto(s) percentual(is), '+
+    'de '+trendPctFormatter.format(first.rate)+' para '+trendPctFormatter.format(last.rate)+
+    '. O maior nível foi em '+showDate(max.date)+' e o menor em '+
+    showDate(min.date)+'. Cada ponto representa um dia com posição financeira nas duas bases; não há interpolação de datas faltantes.';
+}
+function renderRateChart(){
+  const canvas=$('rateChart');
+  if(!canvas)return;
+  const status=$('rateDailyStatus');
+  const data=selectedDailyRates();
+  const format=rate=>trendPctFormatter.format(rate);
+  const f=currentFilters();
+  const isScoped=f.cliente!=='Todos'||f.gestor!=='Todos'||Boolean(f.search);
+  const scope=$('rateScopeNotice');
+  if(scope){
+    scope.hidden=!isScoped;
+    if(isScoped)scope.textContent='A taxa histórica representa toda a empresa. Os filtros Cliente, Vendedor e Pesquisa não alteram este gráfico diário; somente Ano e Período alteram a série. Os demais painéis continuam respeitando seus próprios filtros.';
+  }
+  if(status){
+    status.textContent=state.dailyRateLoading?'Carregando taxas históricas…':
+      state.dailyRateError||(
+        state.dailyRateReady
+          ?data.length+' registros diários no período selecionado'
+          :'Aguardando ativação do histórico diário no Supabase');
+    status.dataset.status=state.dailyRateError?'error':state.dailyRateReady?'ready':'loading';
+  }
+  if(!data.length){
+    canvas._rateData=[];
+    drawLineChart(canvas,['Sem dados diários'],[{data:[0],color:colors.green,width:3,point:1}],{percent:true});
+    ['rateCurrent','rateMax','rateMin','rateMaxDate','rateMinDate'].forEach(id=>{
+      if($(id))$(id).textContent='—';
+    });
+    if($('rateHistoryInterpretation'))$('rateHistoryInterpretation').textContent=
+      state.dailyRateError || 'O gráfico exibirá todas as posições diárias quando o histórico for disponibilizado pelo Supabase.';
+    if($('rateDailyRange'))$('rateDailyRange').textContent='Sem período carregado';
+    return;
+  }
+  const max=data.reduce((a,b)=>b.rate>a.rate?b:a,data[0]);
+  const min=data.reduce((a,b)=>b.rate<a.rate?b:a,data[0]);
+  const current=data.at(-1);
+  const peakIndex=data.indexOf(max);
+  const lowIndex=data.indexOf(min);
+  const color=data.map((_,i)=>i===peakIndex?colors.danger:i===lowIndex?colors.dark:colors.green);
+  const points=data.map((_,i)=>i===peakIndex||i===lowIndex?7:2);
+  canvas._rateData=data;
+  drawLineChart(canvas,data.map((r,i)=>{
+    // Rótulos compactos para caber a série diária; tooltip traz a data completa.
+    const d=r.date;return d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(2,4);
+  }),[{data:data.map(r=>r.rate),color:colors.green,width:2,pointColors:color,pointSizes:points}],{percent:true});
+  $('rateCurrent').textContent='Posição ('+showDate(current.date)+'): '+format(current.rate);
+  $('rateMax').textContent=format(max.rate);
+  $('rateMin').textContent=format(min.rate);
+  $('rateMaxDate').textContent=showDate(max.date);
+  $('rateMinDate').textContent=showDate(min.date);
+  if($('rateDailyRange'))$('rateDailyRange').textContent=
+    data.length+' dias de histórico • '+showDate(data[0].date)+' — '+showDate(current.date);
+  renderDailyRateNarrative(data,min,max);
 }
 
 function renderKpis(){
