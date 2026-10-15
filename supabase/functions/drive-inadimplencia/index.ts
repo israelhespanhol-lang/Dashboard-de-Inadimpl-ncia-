@@ -121,7 +121,12 @@ function selectSheets(workbook: ExcelJS.Workbook) {
   const sheets = workbook.worksheets;
   const open = sheets.find(s => norm(s.name).includes("total em aberto"));
   const overdue = sheets.find(s => {
-    const n = norm(s.name);
+    // Histórico contém os nomes "TOTAL INAIDMPLENTES", "TOTAL NADIMPLENTES"
+    // e "TOTAL INADIMPLENTES". Corrigir só a identificação de abas,
+    // sem alterar valores, ou usar a aba de análise como substituta.
+    const n = norm(s.name)
+      .replace(/inaidm/g, "inadim")
+      .replace(/nadimpl/g, "inadimpl");
     return n.includes("inadimpl") && !n.includes("analise") && n !== norm(open?.name);
   });
   if (!open || !overdue) throw new Error("MISSING_OPEN_OR_OVERDUE_TAB: " +
