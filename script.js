@@ -1377,7 +1377,13 @@ async function parsePaymentSpreadsheet(file) {
     const colIssue=findCol("invoice date","data de emissão","data emissao","emissao");
     const colDue=findCol("due date","data de vencimento","vencimento","data vencimento");
     const colPay=findCol("payment date","data do pagamento efetivo","data do pagamento","pagamento","data pagamento","data de pagamento");
-    const colVal=findCol("invoice value","valor da nota","valor","valor pago","valor recebido","amount");
+    // Havendo campos distintos para valor faturado e efetivamente pago,
+    // priorizar sempre o valor liquidado.
+    const valuePriority=["valor recebido","valor pago","payment amount","paid amount","amount paid","invoice value","valor da nota","valor","amount"];
+    const colVal=valuePriority.map(name=>headers.indexOf(name)).find(index=>index>=0)??-1;
+    if(["invoice value","valor da nota"].includes(headers[colVal])){
+      warnings.push(sheetName+": utilizando o valor da nota como valor recebido; confira se existem pagamentos parciais.");
+    }
     if([colName,colDue,colPay,colVal].some(c=>c<0)){
       warnings.push(sheetName+": faltam colunas de cliente, vencimento, pagamento ou valor.");
       continue;
