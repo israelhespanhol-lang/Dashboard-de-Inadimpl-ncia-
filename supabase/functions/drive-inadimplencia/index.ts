@@ -1,6 +1,7 @@
 // Google Drive -> Supabase. No secrets or customer data belong in source control.
 // Modes: validate (default, no DB writes) and commit (requires BRIDGE_WRITE_ENABLED=true).
 import ExcelJS from "npm:exceljs@4.4.0";
+import { Buffer } from "node:buffer";
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
 
 type RecordRow = {
@@ -163,7 +164,7 @@ Deno.serve(async request => {
     if (bytes.length > 5_000_000) return reply({ error:"FILE_TOO_LARGE" }, 413);
     const sourceHash = toHex(await crypto.subtle.digest("SHA-256", bytes));
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(bytes.buffer);
+    await workbook.xlsx.load(Buffer.from(bytes));
     const date = fileDate(name);
     const { open, overdue } = selectSheets(workbook);
     const carteira = sheetRecords(open);
