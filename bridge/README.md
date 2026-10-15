@@ -21,8 +21,14 @@
 - Uma nova versão do mesmo arquivo atualiza ambas as tabelas na mesma transação e registra auditoria.
 - Nunca colocar chaves ou dados financeiros no GitHub público.
 
-## Ativação (pendente)
-1. Aplicar e testar SQL em ambiente controlado. Nenhum título real é alterado na instalação.
+## Status de implantação (14/10/2026)
+- SQL de registro/versões aplicado ao Supabase, novas tabelas inicialmente vazias e RLS validado.
+- Edge Function drive-inadimplencia publicada como versão 1, status ACTIVE.
+- O webhook ainda não dispõe de segredo compartilhado configurado, Apps Script não foi instalado.
+- Portanto a automação NÃO está ativa e não foi feito upload de dados reais por essa ponte.
+
+## Ativação restante
+1. SQL já instalado; verificar novamente privilégios antes de colocar a ponte em produção.
 2. Publicar a Edge Function; definir BRIDGE_WEBHOOK_SECRET (mínimo 32 caracteres) nos segredos privados.
 3. Criar projeto em script.google.com, colar Code.gs e habilitar serviço avançado Drive API v3.
 4. Definir Script Properties:
