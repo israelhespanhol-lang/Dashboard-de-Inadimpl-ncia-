@@ -598,10 +598,10 @@ function renderFinancialHistory(){
       (state.monthlyEvolutionError || 'Histórico mensal ainda não habilitado no banco');
     status.dataset.status=hasHistorical?'ready':state.monthlyEvolutionLoading?'loading':'pending';
   }
-  const labels=data.labels.length?data.labels:['Sem dados'];
+  const labels=hasHistorical?(data.labels.length?data.labels:['Sem dados']):['Aguardando histórico'];
   drawLineChart(canvas, labels, [
-    { data:data.open.length?data.open:[0], color:colors.dark, width:3, point:hasHistorical?3:5 },
-    { data:data.overdue.length?data.overdue:[0], color:colors.green, width:3, point:hasHistorical?3:5 }
+    { data:hasHistorical?data.open:[0], color:colors.dark, width:3, point:hasHistorical?3:0.5 },
+    { data:hasHistorical?data.overdue:[0], color:colors.green, width:3, point:hasHistorical?3:0.5 }
   ]);
   canvas._financialData=data;
   showMonthlyTrend(data);
@@ -1948,7 +1948,7 @@ async function loadMonthlyEvolution(){
     if(error)throw error;
     if(!Array.isArray(data))throw Error('RESPOSTA_HISTORICA_INVALIDA');
     const normalized=data.map(r=>({
-      date:String(r.date),month:String(r.month),
+      date:String(r.snapshot_date),month:String(r.snapshot_month),
       totalOpen:Number(r.total_open),totalOverdue:Number(r.total_overdue),
       rate:Number(r.rate),openCount:Number(r.open_count),overdueCount:Number(r.overdue_count)
     })).filter(r=>/^\d{4}-\d{2}-\d{2}$/.test(r.month)&&
