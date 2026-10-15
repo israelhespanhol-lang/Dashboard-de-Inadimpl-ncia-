@@ -1719,7 +1719,7 @@ async function init(){
           }
         }
         if (saved && window.idbKeyval) {
-          for (const key of ['inadimplencia_cache_v2', 'carteira_cache_v1']) {
+          for (const key of ['inadimplencia_cache_v3', 'carteira_cache_v2']) {
             try { await idbKeyval.del(key); } catch (err) { console.warn(err); }
           }
         }
@@ -1767,7 +1767,7 @@ async function fetchDatabaseHistory() {
   
   let allData = [];
   let lastCreatedAt = null;
-  const cacheKey = 'inadimplencia_cache_v2';
+  const cacheKey = 'inadimplencia_cache_v3';
 
   if (window.idbKeyval) {
     try {
@@ -1785,6 +1785,7 @@ async function fetchDatabaseHistory() {
   const pageSize = 1000;
   let hasMore = true;
   let fetchedNew = false;
+  const freshOverdue = [];
 
   while (hasMore) {
     let query = window.appSupabase
@@ -1809,7 +1810,7 @@ async function fetchDatabaseHistory() {
     }
 
     if (data && data.length > 0) {
-      allData = allData.concat(data);
+      freshOverdue.push(...data);
       fetchedNew = true;
       page++;
       if (data.length < pageSize) hasMore = false;
@@ -1818,6 +1819,11 @@ async function fetchDatabaseHistory() {
     }
   }
 
+  if (fetchedNew) {
+    const changed = new Set(freshOverdue.map(row => row.data_base));
+    // Snapshots substituídos não podem ficar duplicados no cache local.
+    allData = allData.filter(row => !changed.has(row.data_base)).concat(freshOverdue);
+  }
   if (fetchedNew && window.idbKeyval && allData.length > 0) {
     try {
       const newLastCreatedAt = allData.reduce((max, r) => (r.created_at > max ? r.created_at : max), allData[0].created_at);
@@ -1829,15 +1835,7 @@ async function fetchDatabaseHistory() {
   
   const data = allData;
 
-  if (!data || data.length === 0) {
-    state.history = [];
-    state.allOpenRows = [];
-    state.overdueRows = [];
-    if (baseUpdated) baseUpdated.textContent = 'Banco de dados vazio. Importe o primeiro arquivo!';
-    renderAll();
-    return;
-  }
-  
+
   // Agrupar os dados que vieram do banco pelo campo "data_base"
   const byDate = new Map();
   data.forEach(row => {
@@ -1850,7 +1848,7 @@ async function fetchDatabaseHistory() {
   // --- CARTEIRA HISTORY ---
   let allCarteira = [];
   let lastCarteiraCreated = null;
-  const cacheKeyCarteira = 'carteira_cache_v1';
+  const cacheKeyCarteira = 'carteira_cache_v2';
   if (window.idbKeyval) {
     try {
       const cachedC = await idbKeyval.get(cacheKeyCarteira);
@@ -1864,6 +1862,7 @@ async function fetchDatabaseHistory() {
   let pageC = 0;
   let hasMoreC = true;
   let fetchedNewC = false;
+  const freshCarteira = [];
   while (hasMoreC) {
     let qC = window.appSupabase.from('carteira_history').select('*').order('created_at', { ascending: true }).range(pageC * pageSize, (pageC + 1) * pageSize - 1);
     if (lastCarteiraCreated) qC = qC.gt('created_at', lastCarteiraCreated);
@@ -1873,7 +1872,7 @@ async function fetchDatabaseHistory() {
       break;
     }
     if (dataC && dataC.length > 0) {
-      allCarteira = allCarteira.concat(dataC);
+      freshCarteira.push(...dataC);
       fetchedNewC = true;
       pageC++;
       if (dataC.length < pageSize) hasMoreC = false;
@@ -1882,6 +1881,23 @@ async function fetchDatabaseHistory() {
     }
   }
 
+  if (fetchedNewC) {
+    const changed = new Set(freshCarteira.map(row => row.data_base));
+    allCarteira = allCarteira.filter(row => !changed.has(row.data_base)).concat(freshCarteira);
+    // Uma revisão pode deixar uma data sem títulos vencidos: retire os antigos do cache.
+    const overdueDates = new Set(freshOverdue.map(row => row.data_base));
+    allData = allData.filter(row => !changed.has(row.data_base) || overdueDates.has(row.data_base));
+    if (window.idbKeyval) {
+      try {
+        await idbKeyval.set(cacheKey, {
+          data: allData,
+          lastCreatedAt: allData.length
+            ? allData.reduce((max, row) => row.created_at > max ? row.created_at : max, allData[0].created_at)
+            : lastCreatedAt
+        });
+      } catch (e) { console.warn('Cache de inadimplência:', e); }
+    }
+  }
   if (fetchedNewC && window.idbKeyval && allCarteira.length > 0) {
     try {
       const newMax = allCarteira.reduce((m, r) => (r.created_at > m ? r.created_at : m), allCarteira[0].created_at);
@@ -1897,7 +1913,9 @@ async function fetchDatabaseHistory() {
   });
 
   const history = [];
-  Array.from(byDate.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([date, rows]) => {
+  const allDates = [...new Set([...byDate.keys(), ...byDateC.keys()])].sort((a,b) => a.localeCompare(b));
+  allDates.forEach(date => {
+     const rows = byDate.get(date) || [];
      const overdue = rows.map(r => enrichRow(r));
      const openRows = byDateC.get(date) || [];
      const allOpen = openRows.map(r => enrichRow(r));
@@ -1914,6 +1932,14 @@ async function fetchDatabaseHistory() {
      });
   });
   
+  if (!history.length) {
+    state.history = [];
+    state.allOpenRows = [];
+    state.overdueRows = [];
+    if (baseUpdated) baseUpdated.textContent = 'Banco de dados vazio. Importe o primeiro arquivo!';
+    renderAll();
+    return;
+  }
   state.history = history;
   const latest = history[history.length - 1];
   
