@@ -66,7 +66,7 @@
     select.value=prev && [...select.options].some(o=>o.value===prev)?prev:"all";
   }
   function setSource(kind,name) {
-    state.source=kind==="demo"?"demo":kind==="local"?"local":"none";
+    state.source=["demo","local","cloud"].includes(kind)?kind:"none";
     state.sourceName=name||"";
     updateSource();
   }
@@ -75,13 +75,16 @@
     if(badge){
       badge.dataset.kind=state.source;
       badge.textContent=state.source==="demo"?"◉ DADOS DEMONSTRATIVOS":
+        state.source==="cloud"?"● HISTÓRICO SINCRONIZADO DO SUPABASE":
         state.source==="local"?"● PLANILHA IMPORTADA NO NAVEGADOR":"○ NENHUMA BASE IMPORTADA";
     }
-    if(info)info.textContent=state.source==="local"?
+    if(info)info.textContent=state.source==="cloud"?
+      (state.sourceName?state.sourceName+" • ":"")+"Os dados foram lidos do Supabase; apenas usuários autorizados podem consultar.":
+      state.source==="local"?
       (state.sourceName?state.sourceName+" • ":"")+"Os arquivos permanecem neste navegador, sem envio automático ao banco.":
       state.source==="demo"?"Exemplo fictício apenas para conhecer os gráficos; não representa dados reais.":
       "Importe uma planilha XLSX/CSV de pagamentos para começar a análise.";
-    const c=el("paymentClearLocalBtn");if(c)c.disabled=state.source==="none";
+    const c=el("paymentClearLocalBtn");if(c)c.disabled=state.source!=="local"&&state.source!=="demo";
   }
   function readControls(){
     return {
