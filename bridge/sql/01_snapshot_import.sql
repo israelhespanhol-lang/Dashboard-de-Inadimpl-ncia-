@@ -58,7 +58,7 @@ begin
   if p_data_base is null or p_data_base < date '2000-01-01'
       or p_drive_file_id is null or length(trim(p_drive_file_id)) = 0
       or p_file_name is null or length(trim(p_file_name)) = 0
-      or p_source_sha256 is null or p_source_sha256 !~ '^[0-9a-f]{64}
+      or p_source_sha256 is null or length(p_source_sha256) <> 64 or p_source_sha256 ~ '[^0-9a-f]'
       or jsonb_typeof(p_overdue) is distinct from 'array'
       or jsonb_typeof(p_carteira) is distinct from 'array' then
     raise exception 'INVALID_SNAPSHOT_INPUT';
