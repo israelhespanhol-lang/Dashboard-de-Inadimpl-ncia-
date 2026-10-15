@@ -6,14 +6,16 @@
   const moneyFmt = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL"});
   const smallFmt = new Intl.NumberFormat("pt-BR", {maximumFractionDigits:1});
   const pctFmt = new Intl.NumberFormat("pt-BR", {style:"percent",minimumFractionDigits:1,maximumFractionDigits:1});
-  const colors = ["#2a91b7","#128447","#b8cd5c","#eea23b","#ea7741","#bf4548"];
+  const colors = ["#2a91b7","#128447","#a3c451","#e2c74e","#eea23b","#ec8042","#d65a4c","#a53945"];
   const bins = [
     {id:"early",label:"Antecipado",color:colors[0],test:d=>d<0},
     {id:"ontime",label:"No vencimento",color:colors[1],test:d=>d===0},
     {id:"1-7",label:"1–7 dias",color:colors[2],test:d=>d>=1&&d<=7},
-    {id:"8-30",label:"8–30 dias",color:colors[3],test:d=>d>=8&&d<=30},
-    {id:"31-60",label:"31–60 dias",color:colors[4],test:d=>d>=31&&d<=60},
-    {id:"60+",label:"Mais de 60 dias",color:colors[5],test:d=>d>60}
+    {id:"8-15",label:"8–15 dias",color:colors[3],test:d=>d>=8&&d<=15},
+    {id:"16-30",label:"16–30 dias",color:colors[4],test:d=>d>=16&&d<=30},
+    {id:"31-60",label:"31–60 dias",color:colors[5],test:d=>d>=31&&d<=60},
+    {id:"61-90",label:"61–90 dias",color:colors[6],test:d=>d>=61&&d<=90},
+    {id:"90+",label:"Mais de 90 dias",color:colors[7],test:d=>d>90}
   ];
   const state = {
     data:[], source:"none", sourceName:"", filtered:[], tableSearch:"",
