@@ -555,11 +555,13 @@ function showMonthlyTrend(data) {
   const lastYearMonth=String(Number(current.month.slice(0,4))-1)+current.month.slice(4);
   const previousYear=series.find(r=>r.month===lastYearMonth);
   const first=series[0],reference=previousYear||first;
+  const comparable=reference!==current;
   const currentRate=Number(current.rate),previousRate=Number(reference.rate);
   const deltaPp=(currentRate-previousRate)*100;
   const gapNow=Number(current.totalOpen)-Number(current.totalOverdue);
   const gapBefore=Number(reference.totalOpen)-Number(reference.totalOverdue);
-  const badge=deltaPp>0.05?'Aumento da proporção vencida':
+  const badge=!comparable?'Ainda não existem dois fechamentos para comparar':
+    deltaPp>0.05?'Aumento da proporção vencida':
     deltaPp < -0.05?'Redução da proporção vencida':'Proporção estável';
   const cards=[
     ['Taxa em '+monthLabel(reference.month.slice(0,7)),trendPctFormatter.format(previousRate)],
@@ -569,7 +571,9 @@ function showMonthlyTrend(data) {
   ];
   root.innerHTML=cards.map(([name,value])=>'<article class="trend-metric"><small>'+
     escapeHtml(name)+'</small><strong>'+escapeHtml(value)+'</strong></article>').join('');
-  const note='Em '+monthLabel(reference.month.slice(0,7))+
+  const note=!comparable
+    ? 'Há apenas um fechamento mensal disponível para os filtros escolhidos. Selecione mais meses para comparar tendências.'
+    : 'Em '+monthLabel(reference.month.slice(0,7))+
     ', '+trendPctFormatter.format(previousRate)+' da carteira em aberto estava inadimplente; em '+
     monthLabel(current.month.slice(0,7))+', '+trendPctFormatter.format(currentRate)+'. '+
     badge+'. A diferença nominal entre carteira e inadimplência passou de '+
@@ -1932,7 +1936,6 @@ async function loadMonthlyEvolution(){
   const f=currentFilters();
   state.monthlyEvolutionLoading=true;
   state.monthlyEvolutionError=null;
-  const oldData=state.monthlyEvolution;
   state.monthlyEvolution=null;
   renderFinancialHistory();
   try {
@@ -1965,7 +1968,8 @@ async function loadMonthlyEvolution(){
   } catch(error){
     if(request!==monthlyFetchRequest)return;
     // Sem a migração SQL, evitar sugerir que uma única data representa toda a série.
-    state.monthlyEvolution=oldData&&oldData.length?oldData:null;
+    // Não exibir resultados de outro cliente enquanto um filtro novo falha.
+    state.monthlyEvolution=null;
     state.monthlyEvolutionError=
       String(error?.code||'')==='PGRST202'||String(error?.message||'').includes('get_monthly_evolution')?
       'Aguardando ativação do resumo histórico no Supabase.':'Histórico indisponível: '+(error?.message||String(error));
