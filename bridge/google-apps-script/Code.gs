@@ -355,3 +355,24 @@ function runRecentImportBatch() {
   console.log('CARGA RECENTE: '+JSON.stringify(report));
   return report;
 }
+
+
+// CONFIGURAÇÃO SEGURA: a interface do Apps Script fica somente leitura
+// quando existem mais de 50 Script Properties (done_*).
+// Esta função adiciona SOMENTE a autorização local para o piloto supervisionado.
+// Não altera o segredo do webhook, não dispara importação e não muda BRIDGE_MODE.
+function authorizeRecentPilotImport() {
+  const p = PropertiesService.getScriptProperties();
+  if (p.getProperty('BRIDGE_MODE') !== 'validate') {
+    throw new Error('Antes de autorizar o piloto, BRIDGE_MODE deve estar como validate.');
+  }
+  bridgeConfig_();
+  p.setProperty('ALLOW_PRODUCTION_WRITES', 'YES');
+  console.log('Autorização local do piloto configurada. Nenhum arquivo foi enviado. Execute runRecentPilotImport MANUALMENTE depois de confirmar BRIDGE_WRITE_ENABLED=true e o backup.');
+}
+
+// Revoga a autorização local ao terminar a carga, mantendo todos os done_*.
+function revokeRecentPilotImport() {
+  PropertiesService.getScriptProperties().deleteProperty('ALLOW_PRODUCTION_WRITES');
+  console.log('Autorização local de importação revogada. Nenhum dado ou registro de progresso foi apagado.');
+}
