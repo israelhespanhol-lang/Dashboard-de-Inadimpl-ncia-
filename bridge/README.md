@@ -7,7 +7,8 @@
 - Datas com registro apenas em uma tabela: 17/01/2022, 29/03/2022, 29/04/2022. Não corrigir automaticamente.
 
 ## Arquitetura e arquivos
-- bridge/google-apps-script/Code.gs: varre a pasta e envia cada XLSX por HTTPS em lotes pequenos.
+- bridge/google-apps-script/Code.gs: varre a pasta, envia cada XLSX por HTTPS em lotes pequenos e registra resultado no monitor do Google Sheets.
+- bridge/google-apps-script/appsscript.json: habilita o serviço avançado Drive API v3.
 - supabase/functions/drive-inadimplencia/index.ts: autentica o webhook, lê abas Excel e valida dados.
 - bridge/sql/01_snapshot_import.sql: instala registro de versão e RPC transacional.
 - supabase/config.toml: permite endpoint sem JWT Supabase porque este webhook valida um segredo próprio.
@@ -37,7 +38,8 @@
    BRIDGE_WEBHOOK_SECRET = mesmo segredo do backend;
    BRIDGE_MODE = validate;
    START_DATE = 2026-08-26;
-   BATCH_SIZE = 3 para piloto, depois 10.
+   BATCH_SIZE = 3 para piloto, depois 10;
+   CONTROL_SHEET_ID = ID privado do arquivo 'Monitor da Ponte - Inadimplência' criado no Drive.
 5. Rodar runBridgeBatch manualmente e comparar totais das planilhas com o retorno do endpoint.
 6. Somente após validar habilitar, conscientemente, BRIDGE_WRITE_ENABLED=true no servidor,
    BRIDGE_MODE=commit e ALLOW_PRODUCTION_WRITES=YES no Apps Script.
@@ -54,7 +56,8 @@
 
 ## Limitações atuais
 - O Apps Script precisa ser instalado em uma conta com acesso à pasta e autorizado no Google.
-- A função necessita implantação e segredo antes dos testes HTTP.
+- A função está publicada e aguarda configuração de BRIDGE_WEBHOOK_SECRET antes dos testes HTTP.
+- O monitor no Google Drive possui 34 arquivos em situação PENDENTE; após a autorização, Code.gs atualizará VALIDADO, IMPORTADO, ERRO etc.
 - O navegador atual ainda precisa evoluir para consultas agregadas: mais de 1,6 milhão de registros
   de carteira tornam arriscado carregar todo o histórico em memória.
 - Uma planilha renomeada com nova data requer conciliação manual da data antiga.
