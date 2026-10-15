@@ -1418,6 +1418,60 @@ function renderPaymentHistory() {
 }
 window.paymentDataReset=()=>{state.paymentBase=[];renderPaymentHistory();};
 
+// Lê o único histórico consolidado de pagamentos gravado no Supabase.
+async function fetchCloudPaymentHistory() {
+  if(!window.appSupabase || !window.PaymentDashboard) return false;
+  try {
+    const {data:sources,error:metadataError}=await window.appSupabase
+      .from('payment_history_sources').select('source_key,file_name,sha256,row_count')
+      .order('imported_at',{ascending:false});
+    if(metadataError)throw metadataError;
+    if(!sources?.length)return false;
+
+    // Prioriza cache local somente quando a versão de origem no servidor não mudou.
+    const key=sources.map(x=>x.source_key+':'+x.sha256).sort().join('|');
+    let rows=null;
+    if(window.idbKeyval){
+      try {
+        const cached=await window.idbKeyval.get('compo_cloud_payments_v1');
+        if(cached?.key===key && Array.isArray(cached.rows))rows=cached.rows;
+      }catch(e){console.warn('Cache de pagamentos indisponível:',e);}
+    }
+    if(!rows){
+      rows=[];
+      const limit=1000;
+      const expected=sources.reduce((a,x)=>a+Number(x.row_count||0),0);
+      if(expected>25000)throw new Error('Histórico acima de 25 mil pagamentos: é necessária paginação por filtros no servidor.');
+      for(let page=0;page<=25;page++){
+        const {data,error}=await window.appSupabase.from('payment_history')
+          .select('id,customer_code,customer_name,seller,sap,invoice,issue_date,due_date,payment_date,amount,days_delay')
+          .order('id',{ascending:true}).range(page*limit,(page+1)*limit-1);
+        if(error)throw error;
+        rows.push(...(data||[]));
+        if(!data?.length||data.length<limit)break;
+      }
+      if(rows.length!==expected)throw new Error('Carregamento incompleto do histórico de pagamentos ('+rows.length+'/'+expected+').');
+      rows=rows.map(r=>({
+        customer:r.customer_code||'',name:r.customer_name,seller:r.seller||'',
+        sap:r.sap||'',invoice:r.invoice||'',issueDate:r.issue_date||'',
+        dueDate:r.due_date,payDate:r.payment_date,
+        value:Number(r.amount),delay:Number(r.days_delay)
+      }));
+      if(window.idbKeyval)try{
+        await window.idbKeyval.set('compo_cloud_payments_v1',{key,rows});
+      }catch(e){console.warn('Não foi possível manter cache local do histórico:',e);}
+    }
+    state.paymentBase=rows;
+    window.PaymentDashboard.setSource('cloud',sources.length===1?sources[0].file_name:sources.length+' arquivos no banco');
+    return true;
+  }catch(error){
+    // Antes de criar a tabela, o dashboard atual continua funcionando normalmente.
+    if(!['PGRST205','42P01'].includes(error?.code))
+      console.warn('Histórico de pagamentos ainda não disponível na nuvem:',error);
+    return false;
+  }
+}
+
 async function init(){
   // Verificação de autenticação Supabase
   if (window.appSupabase) {
@@ -1457,6 +1511,8 @@ async function init(){
     state.paymentBase=savedPayments.rows;
     window.PaymentDashboard?.setSource("local",savedPayments.filename||"Histórico salvo neste navegador");
   }
+  // Se existir uma fonte oficial, substitui a cópia local pelos registros do Supabase.
+  await fetchCloudPaymentHistory();
 
   refreshFilters();
   refreshYearFilter();
