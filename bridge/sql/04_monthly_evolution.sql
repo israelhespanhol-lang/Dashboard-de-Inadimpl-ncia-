@@ -118,8 +118,8 @@ create or replace function public.get_monthly_evolution(
   p_gestor text default null,
   p_search text default null
 ) returns table (
-  date text, month text,
-  total_open numeric, total_overdue numeric, 
+  snapshot_date text, snapshot_month text,
+  total_open numeric, total_overdue numeric,
   rate numeric, open_count bigint, overdue_count bigint
 )
 language plpgsql
