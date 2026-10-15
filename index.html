@@ -31,6 +31,16 @@
     @media(max-width:860px){.historical-trend-cards{grid-template-columns:repeat(2,minmax(0,1fr));}}
     @media(max-width:480px){.historical-trend-cards{grid-template-columns:1fr;}}
 
+
+    /* Série diária de inadimplência */
+    .rate-daily-meta { display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:9px 0 15px;color:#667867;font-size:12px; }
+    #rateDailyStatus { color:#197147;font-weight:800; }
+    #rateDailyStatus[data-status="error"] { color:#aa5b2b; }
+    #rateDailyStatus[data-status="loading"] { color:#667867; }
+    .rate-analysis-box { color:#3a6248;background:#f0f7ec;border:1px solid #d8ead4;border-radius:13px;padding:14px 16px;margin:12px 0 18px;font-size:12px;line-height:1.7; }
+    .rate-scope-notice { border-left:3px solid #df9c32;background:#fff7eb;color:#775322;border-radius:7px;padding:10px 13px;line-height:1.6;font-size:12px; }
+    .rate-scope-notice[hidden] { display:none; }
+
 </style>
 </head>
 <body>
@@ -262,15 +272,22 @@
       <article class="card chart-card rate-chart-card">
         <div class="card-head simple">
           <div>
-            <span class="section-kicker">Taxa de inadimplência</span>
-            <h2>Total inadimplente ÷ total em aberto</h2>
+            <span class="section-kicker">Taxa de inadimplência • Série histórica diária</span>
+            <h2>Flutuação diária da taxa de inadimplência</h2>
+            <p class="chart-description">Taxa = total inadimplente ÷ carteira em aberto × 100. Cada ponto corresponde à posição de uma data presente nos arquivos históricos.</p>
           </div>
           <span class="pill" id="rateCurrent">Atual: —</span>
         </div>
+        <div class="rate-daily-meta">
+          <span id="rateDailyStatus" data-status="loading">Consultando todas as datas históricas…</span>
+          <span id="rateDailyRange">Aguardando período</span>
+        </div>
+        <p id="rateScopeNotice" class="rate-scope-notice" hidden></p>
         <div class="interactive-chart">
           <canvas id="rateChart" width="900" height="320"></canvas>
           <div class="chart-tooltip" id="rateTooltip" hidden></div>
         </div>
+        <div id="rateHistoryInterpretation" class="rate-analysis-box" role="status">A análise da série diária aparecerá assim que o histórico estiver disponível no banco.</div>
         <div class="chart-legend rate-legend">
           <span><i style="background:#64b32e"></i>Evolução da taxa</span>
           <span><i style="background:#c64444"></i>Pico máximo</span>
@@ -289,7 +306,7 @@
           <strong id="rateMin">—</strong>
           <span id="rateMinDate">—</span>
         </div>
-        <p>Percentual do saldo total em aberto que já está inadimplente no período selecionado.</p>
+        <p>Os picos são calculados sobre <strong>todas as datas do período selecionado</strong>, e não apenas sobre o último dia de cada mês.</p>
       </aside>
     </section>
 
@@ -701,7 +718,7 @@
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js?v=20261015-2"></script>
   <script src="./payments-dashboard.js?v=20261015-cloud-1"></script>
-  <script src="./script.js?v=20261015-monthly-history-1"></script>
+  <script src="./script.js?v=20261015-daily-rate-1"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
