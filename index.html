@@ -14,6 +14,8 @@
   <style>
     body { opacity: 0; transition: opacity 0.3s ease-in-out; }
     body.auth-checked { opacity: 1; }
+    .history-scope-notice { padding: 12px 18px; margin: 10px 0 16px; border: 1px solid #d4e3cf; border-radius: 14px; color: #36513a; background: #f7faf5; font-size: 14px; line-height: 1.5; }
+    .history-scope-notice[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -80,6 +82,9 @@
   </section>
 
   <main class="wrap main">
+    <div id="historyScopeNotice" class="history-scope-notice" role="status" hidden>
+      <strong>Visão financeira atual:</strong> os indicadores usam a última data registrada no banco. O histórico mensal completo ainda não foi carregado; gráficos de evolução não representam toda a série histórica.
+    </div>
     <section class="card import-card tab-pane" id="importar">
       <div class="section-title">
         <div>
@@ -493,7 +498,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js"></script>
-  <script src="./script.js?v=20260826-11"></script>
+  <script src="./script.js?v=20261015-quickcurrent-1"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
