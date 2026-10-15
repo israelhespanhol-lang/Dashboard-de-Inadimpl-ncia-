@@ -11,7 +11,7 @@
   <link rel="icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="shortcut icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="stylesheet" href="./style.css?v=20260831" />
-  <link rel="stylesheet" href="./payments-dashboard.css?v=20261015-1" />
+  <link rel="stylesheet" href="./payments-dashboard.css?v=20261015-2" />
   <style>
     body { opacity: 0; transition: opacity 0.3s ease-in-out; }
     body.auth-checked { opacity: 1; }
@@ -426,7 +426,7 @@
           <p>Visão executiva de pontualidade, valores recebidos, atrasos e comportamento histórico de cada cliente.</p>
         </div>
         <div class="payments-head__actions">
-          <input id="paymentHistoryInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          <input id="paymentHistoryInput" type="file" accept=".xlsx,.xls,.csv" multiple hidden>
           <button class="payments-btn payments-btn--outline" id="paymentHistoryMockBtn" type="button">◈ Dados demonstrativos</button>
           <button class="payments-btn payments-btn--lime" id="paymentHistoryImportBtn" type="button">↑ Importar planilha</button>
           <button class="payments-btn" id="payExportBtn" type="button">↓ Exportar CSV</button>
@@ -675,8 +675,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js"></script>
-  <script src="./payments-dashboard.js?v=20261015-1"></script>
-  <script src="./script.js?v=20261015-payments-1"></script>
+  <script src="./payments-dashboard.js?v=20261015-2"></script>
+  <script src="./script.js?v=20261015-payments-2"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
