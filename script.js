@@ -854,36 +854,115 @@ function renderInsights(){
     : 'Nenhum título inadimplente encontrado para os filtros selecionados.';
 }
 
-function renderSecondaryCharts(){
-  const rows = filteredTitles();
-  const order = ['A vencer', '0-30', '31-60', '61-90', '+90'];
-  const values = order.map(a => sum(rows.filter(r => r.aging === a).map(r => r.valor)));
-  drawBarChart($('agingChart'), order, values, true);
 
-  const vendors = groupBy(rows, 'gestor').slice(0, 6);
-  const vendorLabels = vendors.length ? vendors.map(v => v.key.split(' ')[0]) : ['Nenhum'];
-  const vendorValues = vendors.length ? vendors.map(v => v.total) : [0];
-  drawBarChart($('regionChart'), vendorLabels, vendorValues, false);
+// A coluna "gestor" dos snapshots identifica o vendedor.
+// O gerente é definido pelos vínculos da planilha "Vendedores - Gerentes.xlsx".
+function normalizeTeamMember(value){
+  return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ').trim().toUpperCase();
+}
+function managerForSeller(seller){
+  const map=window.COMPO_TEAM_ASSIGNMENTS?.sellers||{};
+  const key=normalizeTeamMember(seller);
+  return Object.prototype.hasOwnProperty.call(map,key) ? map[key] : null;
+}
+function getTeamPerformance(rows){
+  const managerNames=window.COMPO_TEAM_ASSIGNMENTS?.managers||[];
+  const managers=new Map(managerNames.map(name=>[name,{name,total:0,count:0,sellers:new Set()}]));
+  const sellers=new Map();
+  let withoutManager=0,unassignedCount=0;
+  const unidentified=new Set();
+  rows.forEach(row=>{
+    const seller=String(row.gestor||'Não informado').trim()||'Não informado';
+    const key=normalizeTeamMember(seller);
+    const manager=managerForSeller(seller);
+    const value=Number(row.valor)||0;
+    if(!sellers.has(key))sellers.set(key,{name:seller,key,manager,total:0,count:0});
+    const item=sellers.get(key);
+    item.total+=value;
+    item.count++;
+    if(manager&&managers.has(manager)){
+      const bucket=managers.get(manager);
+      bucket.total+=value;
+      bucket.count++;
+      bucket.sellers.add(key);
+    }else{
+      withoutManager+=value;
+      unassignedCount++;
+      unidentified.add(seller);
+    }
+  });
+  return {
+    managers:[...managers.values()],
+    sellers:[...sellers.values()].sort((a,b)=>b.total-a.total || a.name.localeCompare(b.name,'pt-BR')),
+    unassigned:{total:withoutManager,count:unassignedCount,names:[...unidentified].sort((a,b)=>a.localeCompare(b,'pt-BR'))}
+  };
 }
 
+function renderSecondaryCharts(){
+  const rows=filteredTitles();
+  const order=['A vencer','0-30','31-60','61-90','+90'];
+  const values=order.map(a=>sum(rows.filter(r=>r.aging===a).map(r=>r.valor)));
+  drawBarChart($('agingChart'),order,values,true);
+}
 function renderManagers(){
-  const rows = filteredTitles();
-  const items = groupBy(rows, 'gestor');
-  const max = Math.max(1, ...items.map(x => x.total));
-  const el = $('managerList');
-  if (!el) return;
-  el.innerHTML = items.length
-    ? items.map(item => `
-        <div class="manager-row">
-          <div>
-            <strong>${escapeHtml(item.key)}</strong>
-            <small>${rows.filter(r => r.gestor === item.key).length} títulos em atraso</small>
-            <div class="progress"><span style="width:${(item.total / max) * 100}%"></span></div>
-          </div>
-          <div class="amount">${fmtMoney.format(item.total)}</div>
-        </div>
-      `).join('')
-    : '<div class="empty-state">Nenhum vendedor encontrado para os filtros selecionados.</div>';
+  const rows=filteredTitles();
+  const {managers,sellers,unassigned}=getTeamPerformance(rows);
+  const el=$('managerList'),sellerEl=$('sellerList');
+  if(!el||!sellerEl)return;
+  const assigned=managers.reduce((acc,item)=>acc+item.total,0);
+  const total=assigned+unassigned.total;
+  const max=Math.max(1,...managers.map(item=>item.total));
+  el.innerHTML=managers.length?managers.map((item,i)=>{
+    const share=assigned>0?item.total/assigned:0;
+    const width=Math.max(0,Math.min(100,100*item.total/max));
+    return `<article class="manager-summary manager-summary--${i+1}">
+      <div class="manager-summary__heading">
+        <span class="manager-summary__icon" aria-hidden="true">${i+1}</span>
+        <div><small>Gerente comercial</small><h3>${escapeHtml(item.name)}</h3></div>
+      </div>
+      <strong class="manager-summary__value">${fmtMoney.format(item.total)}</strong>
+      <div class="manager-summary__meta">
+        <span>${item.count} título${item.count!==1?'s':''} em atraso</span>
+        <span>${item.sellers.size} vendedor${item.sellers.size!==1?'es':''} com saldo</span>
+      </div>
+      <div class="progress" title="${(share*100).toFixed(1)}% do saldo atribuído aos gerentes">
+        <span style="width:${width.toFixed(2)}%"></span>
+      </div>
+      <small class="manager-summary__share">${(share*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}% do saldo com gerente identificado</small>
+    </article>`;
+  }).join(''):'<div class="empty-state">Aguardando cadastro de Júlio e Anderson.</div>';
+  const status=$('managerCoverage');
+  if(status){
+    status.textContent=rows.length?
+      'Gerentes identificados: '+fmtMoney.format(assigned)+' • Total selecionado: '+fmtMoney.format(total):
+      'Nenhum título para os filtros selecionados.';
+  }
+  const missing=$('managerUnassigned');
+  if(missing){
+    missing.hidden=unassigned.count===0;
+    if(unassigned.count){
+      missing.innerHTML='<strong>Vendedores sem gerente identificado: '+
+        fmtMoney.format(unassigned.total)+'</strong> em '+unassigned.count+
+        ' título(s). Não incluídos nos saldos de Júlio ou Anderson. '+
+        '<span>'+unassigned.names.map(escapeHtml).join(' • ')+'</span>';
+    }else missing.textContent='';
+  }
+  const maxSeller=Math.max(1,...sellers.map(item=>item.total));
+  sellerEl.innerHTML=sellers.length?sellers.map(item=>{
+    const width=Math.max(0,Math.min(100,item.total/maxSeller*100));
+    const manager=item.manager||'Gerente não identificado';
+    return `<div class="salesperson-row">
+      <div class="salesperson-row__info">
+        <strong>${escapeHtml(item.name)}</strong>
+        <small>${escapeHtml(manager)} · ${item.count} título${item.count!==1?'s':''} em atraso</small>
+        <div class="progress"><span style="width:${width.toFixed(2)}%"></span></div>
+      </div>
+      <strong class="salesperson-row__amount">${fmtMoney.format(item.total)}</strong>
+    </div>`;
+  }).join(''):'<div class="empty-state">Nenhum vendedor com títulos na seleção.</div>';
+  const sellersCount=$('sellerCount');
+  if(sellersCount)sellersCount.textContent=sellers.length+' vendedor'+(sellers.length!==1?'es':'')+' com títulos na seleção';
 }
 
 function renderRanking(){
