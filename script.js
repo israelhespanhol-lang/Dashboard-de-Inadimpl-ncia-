@@ -1679,7 +1679,7 @@ async function fetchCloudPaymentHistory() {
     let rows=null;
     if(window.idbKeyval){
       try {
-        const cached=await window.idbKeyval.get('compo_cloud_payments_v1');
+        const cached=await window.idbKeyval.get('compo_cloud_payments_v2');
         if(cached?.key===key && Array.isArray(cached.rows))rows=cached.rows;
       }catch(e){console.warn('Cache de pagamentos indisponível:',e);}
     }
@@ -1718,7 +1718,7 @@ async function fetchCloudPaymentHistory() {
         dataQuality:String(r.data_quality||'ok')
       }));
       if(window.idbKeyval)try{
-        await window.idbKeyval.set('compo_cloud_payments_v1',{key,rows});
+        await window.idbKeyval.set('compo_cloud_payments_v2',{key,rows});
       }catch(e){console.warn('Não foi possível manter cache local do histórico:',e);}
     }
     state.paymentBase=rows;
@@ -1771,8 +1771,11 @@ async function init(){
     state.paymentBase=savedPayments.rows;
     window.PaymentDashboard?.setSource("local",savedPayments.filename||"Histórico salvo neste navegador");
   }
-  // Se existir uma fonte oficial, substitui a cópia local pelos registros do Supabase.
-  await fetchCloudPaymentHistory();
+  // Busca a base oficial em segundo plano: não trava a página inteira ao
+  // carregar as mais de 36 mil linhas na primeira visita.
+  void fetchCloudPaymentHistory().then(loaded => {
+    if (loaded) renderPaymentHistory();
+  });
 
   refreshFilters();
   refreshYearFilter();
