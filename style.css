@@ -325,3 +325,159 @@ tr:hover td { background:#fbfdf9; }
   .salesperson-row__amount { text-align:left; }
   .manager-summary__value { font-size:25px; }
 }
+
+
+/* Análises: grade com dois cards compactos em cima e dois longos embaixo. */
+.analytics-grid.analytics-grid--four-blocks {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-areas:
+    "managers aging"
+    "sellers clients";
+  grid-template-rows:auto auto;
+  align-items:stretch;
+  gap:20px;
+}
+.analytics-grid.analytics-grid--four-blocks > .card {
+  grid-column:auto; min-width:0; display:flex; flex-direction:column;
+}
+.analytics-grid.analytics-grid--four-blocks > .analytics-managers { grid-area:managers; }
+.analytics-grid.analytics-grid--four-blocks > .analytics-aging { grid-area:aging; }
+.analytics-grid.analytics-grid--four-blocks > .analytics-sellers { grid-area:sellers; }
+.analytics-grid.analytics-grid--four-blocks > .analytics-clients { grid-area:clients; }
+/* A primeira linha é reservada aos resumos; a segunda tem espaço para listas. */
+.analytics-grid.analytics-grid--four-blocks > .analytics-managers,
+.analytics-grid.analytics-grid--four-blocks > .analytics-aging { min-height:405px; }
+.analytics-grid.analytics-grid--four-blocks > .analytics-sellers,
+.analytics-grid.analytics-grid--four-blocks > .analytics-clients { min-height:665px; }
+.analytics-grid.analytics-grid--four-blocks .card-head {
+  margin-bottom:17px;
+  gap:9px;
+  align-items:flex-start;
+}
+.analytics-grid.analytics-grid--four-blocks .card-head h2 {
+  font-size:clamp(21px,2.1vw,26px);
+  line-height:1.2;
+}
+.analytics-grid.analytics-grid--four-blocks .chart-description {
+  color:#657868;
+  font-size:12px;
+  line-height:1.5;
+  margin:8px 0 0;
+}
+.analytics-grid.analytics-grid--four-blocks .team-structure-tag {
+  font-size:10px;
+  padding:7px 10px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-list.manager-team {
+  grid-template-columns:minmax(0,1fr);
+  gap:9px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary {
+  padding:12px 15px;
+  border-radius:14px;
+  gap:8px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary__heading {
+  gap:9px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary__icon {
+  width:31px; height:31px; border-radius:9px; font-size:12px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary__heading h3 {
+  margin:2px 0 0; font-size:14px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary__heading small {
+  font-size:9px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary__value {
+  font-size:clamp(19px,2.2vw,25px);
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary__meta {
+  font-size:11px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-summary__share {
+  font-size:10px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-coverage {
+  padding-top:11px;
+  font-size:11px;
+}
+.analytics-grid.analytics-grid--four-blocks .manager-unassigned {
+  margin-top:9px;
+  padding:9px 11px;
+  font-size:11px;
+}
+.analytics-grid.analytics-grid--four-blocks .analytics-aging canvas {
+  width:100%;
+  height:auto;
+  max-height:360px;
+  margin:auto 0;
+}
+.analytics-grid.analytics-grid--four-blocks .seller-team {
+  grid-template-columns:minmax(0,1fr);
+  align-content:start;
+  gap:9px;
+  max-height:565px;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  scrollbar-color:#a8c99f #eef5ec;
+  padding:0 6px 3px 0;
+}
+.analytics-grid.analytics-grid--four-blocks .salesperson-row {
+  padding:11px 13px;
+  border-radius:12px;
+}
+.analytics-grid.analytics-grid--four-blocks .salesperson-row__info strong {
+  font-size:12px;
+}
+.analytics-grid.analytics-grid--four-blocks .salesperson-row__amount {
+  font-size:12px;
+}
+.analytics-grid.analytics-grid--four-blocks .analytics-clients .ranking {
+  align-content:start;
+  gap:12px;
+}
+.analytics-grid.analytics-grid--four-blocks .analytics-clients .rank-row {
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  padding:17px 14px;
+  align-items:center;
+}
+.analytics-grid.analytics-grid--four-blocks .analytics-clients .rank-row > div:first-child {
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.analytics-grid.analytics-grid--four-blocks .analytics-clients .amount {
+  font-size:12px;
+  white-space:nowrap;
+}
+@media (max-width:960px) {
+  .analytics-grid.analytics-grid--four-blocks {
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"managers" "aging" "sellers" "clients";
+    grid-template-rows:auto;
+    gap:15px;
+  }
+  .analytics-grid.analytics-grid--four-blocks > .analytics-managers,
+  .analytics-grid.analytics-grid--four-blocks > .analytics-aging,
+  .analytics-grid.analytics-grid--four-blocks > .analytics-sellers,
+  .analytics-grid.analytics-grid--four-blocks > .analytics-clients {
+    min-height:0;
+  }
+  .analytics-grid.analytics-grid--four-blocks .seller-team {
+    max-height:590px;
+  }
+}
+@media (max-width:540px) {
+  .analytics-grid.analytics-grid--four-blocks .analytics-clients .rank-row {
+    grid-template-columns:minmax(0,1fr);
+  }
+  .analytics-grid.analytics-grid--four-blocks .analytics-clients .amount {
+    white-space:normal;
+  }
+  .analytics-grid.analytics-grid--four-blocks .manager-summary__value {
+    font-size:19px;
+  }
+}
