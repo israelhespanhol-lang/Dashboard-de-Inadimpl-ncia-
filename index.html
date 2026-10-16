@@ -69,7 +69,7 @@
         <a href="#monitor-rj">Consulta RJ</a>
         <a href="#detalhes">Detalhes</a>
         <a href="#historico-pagamentos">Histórico Pag.</a>
-        <a href="#importar">Importar</a>
+
       </nav>
 
       <div class="search">
@@ -112,74 +112,6 @@
     <div id="historyScopeNotice" class="history-scope-notice" role="status" hidden>
       <strong>Visão financeira atual:</strong> os indicadores usam a última data registrada no banco. O histórico mensal completo ainda não foi carregado; gráficos de evolução não representam toda a série histórica.
     </div>
-    <section class="card import-card tab-pane" id="importar">
-      <div class="section-title">
-        <div>
-          <span class="section-kicker">Atualização da base</span>
-          <h2>Importar histórico de pastas</h2>
-        </div>
-        <button class="btn btn--outline" id="templateBtn" type="button">Baixar modelo CSV</button>
-      </div>
-
-      <div class="import-layout">
-        <div class="drop-zone" style="text-align: left; padding: 24px; cursor: default;" tabindex="0">
-          <label style="display: block; margin-bottom: 8px; font-weight: bold;">1. Data de Referência da Planilha (Data Base)</label>
-          <input type="date" id="dbDateInput" style="width: 100%; padding: 12px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 8px;" />
-          
-          <label style="display: block; margin-bottom: 8px; font-weight: bold;">2. Selecione a pasta raiz do histórico (.xlsx / .csv)</label>
-          <input id="dbFileInput" type="file" accept=".xlsx,.xls,.csv" webkitdirectory multiple style="width: 100%; padding: 12px; border: 1px dashed var(--green); border-radius: 8px; background: #f9fbf8; margin-bottom: 24px;" />
-          
-          <label for="dbSingleFileInput" style="display:block; margin-bottom:8px; font-weight:bold;">Ou selecione planilhas avulsas</label>
-          <input id="dbSingleFileInput" type="file" multiple accept=".xlsx,.xls,.csv" style="width:100%;padding:12px;margin-bottom:16px" />
-          <small style="display:block;margin-bottom:12px;">Para importar uma pasta, a data será extraída de cada nome ou caminho. A data manual é usada somente para um arquivo avulso sem data reconhecida.</small>
-          <button class="btn btn--primary" id="dbUploadBtn" type="button" style="width: 100%; height: 48px; font-size: 16px;">
-            ☁️ Salvar Dados no Banco (Empilhar)
-          </button>
-          <small style="display: block; margin-top: 12px; opacity: 0.8; text-align: center;" id="dbUploadStatus">
-            Os dados serão adicionados ao histórico consolidado no Supabase.
-          </small>
-        </div>
-
-        <aside class="import-guide">
-          <span class="section-kicker">Como funciona o empilhamento?</span>
-          <p>Diferente de um arquivo estático, o banco de dados armazena um histórico progressivo da sua carteira.</p>
-          <div class="guide-tags">
-            <span>✓ Selecione a data exata da foto</span>
-            <span>✓ Envie apenas a carteira atualizada</span>
-            <span>✓ O sistema preserva o passado automaticamente</span>
-            <span>✓ Gráficos consolidados em tempo real</span>
-          </div>
-          
-          <button class="btn btn--danger" id="dbClearBtn" type="button" style="margin-top: 24px; width: 100%;">
-             🗑️ Limpar Banco de Dados
-          </button>
-        </aside>
-      </div>
-
-      <div class="import-feedback" id="importFeedback" hidden>
-        <div class="file-summary">
-          <div>
-            <span class="file-badge">XLS</span>
-            <div><strong id="fileName">arquivo.xlsx</strong><small id="fileMeta">0 registros encontrados</small></div>
-          </div>
-          <button class="remove-file" id="removeFileBtn" type="button" aria-label="Remover arquivo">×</button>
-        </div>
-        <div class="validation-message" id="validationMessage"></div>
-        <div class="preview-wrap" id="previewWrap" hidden>
-          <div class="preview-head"><strong>Prévia do arquivo mais recente</strong><span>Primeiros 5 registros</span></div>
-          <div class="table-wrap">
-            <table class="preview-table">
-              <thead id="previewHead"></thead>
-              <tbody id="previewBody"></tbody>
-            </table>
-          </div>
-          <div class="import-actions">
-            <button class="btn btn--light" id="cancelImportBtn" type="button">Cancelar</button>
-            <button class="btn btn--primary" id="applyImportBtn" type="button">Compilar histórico</button>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <section class="filters card global-filters" id="visao">
       <div class="section-title">
