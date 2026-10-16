@@ -1,6 +1,4 @@
-/* Performance de Pagamentos — visualização local, sem envio dos arquivos ao Supabase.
- * Fontes reais devem ser importadas pelo usuário; dados demonstrativos são explicitamente sinalizados.
- */
+/* Performance de Pagamentos — dados oficiais do Supabase e cópia local identificadas separadamente. */
 (() => {
   "use strict";
   const moneyFmt = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL"});
@@ -8,14 +6,14 @@
   const pctFmt = new Intl.NumberFormat("pt-BR", {style:"percent",minimumFractionDigits:1,maximumFractionDigits:1});
   const colors = ["#2a91b7","#128447","#a3c451","#e2c74e","#eea23b","#ec8042","#d65a4c","#a53945"];
   const bins = [
-    {id:"early",label:"Antecipado",color:colors[0],test:d=>d<0},
-    {id:"ontime",label:"No vencimento",color:colors[1],test:d=>d===0},
-    {id:"1-7",label:"1–7 dias",color:colors[2],test:d=>d>=1&&d<=7},
-    {id:"8-15",label:"8–15 dias",color:colors[3],test:d=>d>=8&&d<=15},
-    {id:"16-30",label:"16–30 dias",color:colors[4],test:d=>d>=16&&d<=30},
-    {id:"31-60",label:"31–60 dias",color:colors[5],test:d=>d>=31&&d<=60},
-    {id:"61-90",label:"61–90 dias",color:colors[6],test:d=>d>=61&&d<=90},
-    {id:"90+",label:"Mais de 90 dias",color:colors[7],test:d=>d>90}
+    {id:"early",label:"Antecipado",color:colors[0],test:r=>r.delay<0},
+    {id:"ontime",label:"Em dia (fonte)",color:colors[1],test:r=>!isLatePayment(r)&&r.delay>=0},
+    {id:"1-7",label:"2–7 dias em atraso",color:colors[2],test:r=>isLatePayment(r)&&r.delay<=7},
+    {id:"8-15",label:"8–15 dias",color:colors[3],test:r=>isLatePayment(r)&&r.delay>=8&&r.delay<=15},
+    {id:"16-30",label:"16–30 dias",color:colors[4],test:r=>isLatePayment(r)&&r.delay>=16&&r.delay<=30},
+    {id:"31-60",label:"31–60 dias",color:colors[5],test:r=>isLatePayment(r)&&r.delay>=31&&r.delay<=60},
+    {id:"61-90",label:"61–90 dias",color:colors[6],test:r=>isLatePayment(r)&&r.delay>=61&&r.delay<=90},
+    {id:"90+",label:"Mais de 90 dias",color:colors[7],test:r=>isLatePayment(r)&&r.delay>90}
   ];
   const state = {
     data:[], source:"none", sourceName:"", filtered:[], tableSearch:"",
@@ -52,8 +50,16 @@
       issueDate:String(row.issueDate||""),
       dueDate:String(row.dueDate||""),
       payDate:String(row.payDate||""),
-      value:amount,delay
+      value:amount,delay,
+      sourceStatus:String(row.sourceStatus||"").toUpperCase().trim(),
+      paymentTerm:row.paymentTerm??null
     };
+  }
+  // A planilha utiliza tolerância observada de um dia após vencimento para "EM DIA".
+  // Preserve a classificação da fonte em todos os KPIs de pontualidade.
+  function isLatePayment(row) {
+    return row.sourceStatus==="EM ATRASO" ||
+      (row.sourceStatus!=="EM DIA" && row.delay>0);
   }
   function fillSelect(id,arr,placeholder) {
     const select=el(id);if(!select)return;
@@ -79,7 +85,7 @@
         state.source==="local"?"● PLANILHA IMPORTADA NO NAVEGADOR":"○ NENHUMA BASE IMPORTADA";
     }
     if(info)info.textContent=state.source==="cloud"?
-      (state.sourceName?state.sourceName+" • ":"")+"Os dados foram lidos do Supabase; apenas usuários autorizados podem consultar.":
+      (state.sourceName?state.sourceName+" • ":"")+"Dados oficiais da planilha 2017–2026; 'INVOICE VALUE' é o valor da nota. Status da fonte preservado, incluindo tolerância de um dia.":
       state.source==="local"?
       (state.sourceName?state.sourceName+" • ":"")+"Os arquivos permanecem neste navegador, sem envio automático ao banco.":
       state.source==="demo"?"Exemplo fictício apenas para conhecer os gráficos; não representa dados reais.":
@@ -107,10 +113,10 @@
       if(f.search && ![r.name,r.customer,r.invoice,r.sap].join(" ").toLocaleLowerCase("pt-BR").includes(f.search))return false;
       if(f.seller!=="all" && r.seller!==f.seller)return false;
       if(f.status==="early" && r.delay>=0)return false;
-      if(f.status==="onTime" && r.delay!==0)return false;
-      if(f.status==="noDelay" && r.delay>0)return false;
-      if(f.status==="late" && r.delay<=0)return false;
-      if(f.band!=="all" && !bins.find(b=>b.id===f.band)?.test(r.delay))return false;
+      if(f.status==="onTime" && (isLatePayment(r)||r.delay<0))return false;
+      if(f.status==="noDelay" && isLatePayment(r))return false;
+      if(f.status==="late" && !isLatePayment(r))return false;
+      if(f.band!=="all" && !bins.find(b=>b.id===f.band)?.test(r))return false;
       if(f.min>0 && r.value<f.min)return false;
       if(state.period==="30" && r.payDate<dayCutoff(30))return false;
       if(state.period==="90" && r.payDate<dayCutoff(90))return false;
@@ -121,7 +127,7 @@
     if(f.onlyRecurring){
       // Recorrência: ao menos dois pagamentos feitos com atraso pelo mesmo cliente, após os demais filtros.
       const counts=new Map();
-      rows.filter(r=>r.delay>0).forEach(r=>{
+      rows.filter(isLatePayment).forEach(r=>{
         const key=r.customer||r.name.toLocaleLowerCase("pt-BR");
         counts.set(key,(counts.get(key)||0)+1);
       });
@@ -135,14 +141,14 @@
       const key=r.customer||r.name.toLocaleLowerCase("pt-BR");
       const g=map.get(key)||{name:r.name,lateCount:0,lateValue:0,lateDelay:0,allCount:0};
       g.allCount++;
-      if(r.delay>0){g.lateCount++;g.lateValue+=r.value;g.lateDelay+=r.delay;}
+      if(isLatePayment(r)){g.lateCount++;g.lateValue+=r.value;g.lateDelay+=r.delay;}
       map.set(key,g);
     });
     return [...map.values()].map(x=>({...x,averageDelay:x.lateCount?x.lateDelay/x.lateCount:0}));
   }
   function renderKpis(rows){
     const total=rows.reduce((a,r)=>a+r.value,0);
-    const on=rows.filter(r=>r.delay<=0),late=rows.filter(r=>r.delay>0);
+    const on=rows.filter(r=>!isLatePayment(r)),late=rows.filter(isLatePayment);
     const onValue=on.reduce((a,r)=>a+r.value,0);
     const lateValue=late.reduce((a,r)=>a+r.value,0);
     const avg=late.length?late.reduce((a,r)=>a+r.delay,0)/late.length:0;
@@ -169,7 +175,7 @@
       const key=r.payDate.slice(0,7);
       const m=map.get(key)||{month:key,total:0,count:0,noDelay:0};
       m.total+=r.value;m.count++;
-      if(r.delay<=0)m.noDelay++;
+      if(!isLatePayment(r))m.noDelay++;
       map.set(key,m);
     });
     return [...map.values()].sort((a,b)=>a.month.localeCompare(b.month)).slice(-12);
@@ -218,12 +224,12 @@
     }
     let cumulative=0;
     const slices=bins.map(b=>{
-      const count=rows.filter(r=>b.test(r.delay)).length;
+      const count=rows.filter(r=>b.test(r)).length;
       const from=cumulative;cumulative+=100*count/n;
       return {count,from,to:cumulative,color:b.color,label:b.label};
     });
     target.style.background="conic-gradient("+slices.map(s=>s.color+" "+s.from+"% "+s.to+"%").join(",")+")";
-    const noDelay=rows.filter(r=>r.delay<=0).length;
+    const noDelay=rows.filter(r=>!isLatePayment(r)).length;
     setText("payDonutPct",pct(noDelay/n));
     setText("payDonutCaption","sem atraso");
     legend.innerHTML=slices.map(s=>
@@ -235,7 +241,7 @@
     if(!rows.length){root.innerHTML='<div class="payments-empty">Sem pagamentos neste período.</div>';return;}
     const max=Math.max(1,...bins.map(b=>rows.filter(r=>b.test(r.delay)).length));
     root.innerHTML=bins.map(b=>{
-      const subset=rows.filter(r=>b.test(r.delay)),val=subset.reduce((a,r)=>a+r.value,0);
+      const subset=rows.filter(r=>b.test(r)),val=subset.reduce((a,r)=>a+r.value,0);
       return '<div class="payments-band" title="'+escape(money(val))+' recebido"><strong>'+escape(b.label)+'</strong>'+
         '<div class="payments-band__track"><div class="payments-band__fill" style="width:'+(subset.length/max*100)+'%;background:'+b.color+'"></div></div>'+
         '<span class="payments-band__meta">'+subset.length+' • '+pct(subset.length/rows.length)+'</span></div>';
@@ -263,8 +269,8 @@
       target.innerHTML='<div class="payments-insight"><strong>Aguardando dados</strong><p>Importe uma planilha real para obter diagnósticos baseados nos pagamentos.</p></div>';
       return;
     }
-    const late=rows.filter(r=>r.delay>0);
-    const on=rows.filter(r=>r.delay<=0);
+    const late=rows.filter(isLatePayment);
+    const on=rows.filter(r=>!isLatePayment(r));
     const lateValue=late.reduce((a,r)=>a+r.value,0);
     const delayed=late.map(r=>r.delay).sort((a,b)=>a-b);
     const median=delayed.length? (delayed.length%2?delayed[(delayed.length-1)/2]:
@@ -277,7 +283,7 @@
       "O valor recebido variou "+(previous.total>0?pct((last.total-previous.total)/previous.total):"sem base percentual")+
       " entre "+previous.month+" e "+last.month+". Meses parciais não são equivalentes.";
     const points=[
-      ["Pontualidade",on.length+" de "+rows.length+" pagamentos ocorreram até o vencimento ("+pct(on.length/rows.length)+")."],
+      ["Pontualidade",on.length+" de "+rows.length+" pagamentos foram classificados como em dia ou antecipados na fonte ("+pct(on.length/rows.length)+")."],
       ["Atraso mediano",late.length?smallFmt.format(median)+" dias é a mediana de atraso entre os "+late.length+" títulos pagos fora do prazo.":"Não há pagamentos atrasados na seleção."],
       ["Recebidos após 30 dias",after30.length+" pagamentos recebidos mais de 30 dias após vencer, somando "+money(sumReceived(after30))+"."],
       ["Recebidos após 60 dias",after60.length+" pagamentos recebidos mais de 60 dias após vencer, somando "+money(sumReceived(after60))+"."],
@@ -296,8 +302,10 @@
       return String(va).localeCompare(String(vb),"pt-BR",{numeric:true})*dir;
     });
   }
-  function statusFor(r){return r.delay>0?{label:"Atrasado",css:"late"}:
-    r.delay<0?{label:"Antecipado",css:"early"}:{label:"No prazo",css:"on"};}
+  function statusFor(r){return isLatePayment(r)?{label:"Em atraso",css:"late"}:
+    r.delay<0?{label:"Antecipado",css:"early"}:
+    r.sourceStatus==="EM DIA" && r.delay===1?{label:"Em dia (1 dia tolerado)",css:"on"}:
+    {label:"Em dia",css:"on"};}
   function renderTable(rows){
     const body=el("paymentDetailTable");if(!body)return;
     let list=rows;
