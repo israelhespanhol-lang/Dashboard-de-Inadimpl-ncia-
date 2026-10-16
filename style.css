@@ -277,3 +277,51 @@ tr:hover td { background:#fbfdf9; }
   .section-title, .card-head { flex-direction:column; }
   .segmented { width:100%; overflow:auto; }
 }
+
+
+/* Estrutura comercial — gerentes acima e vendedores abaixo (fonte XLSX da equipe). */
+.analytics-grid .team-managers-card,
+.analytics-grid .team-sellers-card { grid-column:1 / -1; }
+.team-structure-tag { display:inline-flex; align-items:center; justify-content:center; padding:9px 12px; border-radius:999px;
+  font-size:11px; line-height:1.3; font-weight:850; color:#17643c; background:#ecf6e8; border:1px solid #d9e9d2; white-space:nowrap; }
+.manager-list.manager-team { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.manager-summary { border:1px solid #dce9d6; border-radius:20px; background:#fff; padding:22px 24px; box-shadow:0 7px 15px rgba(25,64,31,.035);
+  display:flex; flex-direction:column; gap:13px; min-width:0; }
+.manager-summary--1 { background:linear-gradient(145deg,#fff,#f6fbf0); }
+.manager-summary--2 { background:linear-gradient(145deg,#fff,#f1f8f2); }
+.manager-summary__heading { display:flex; align-items:center; gap:13px; }
+.manager-summary__heading small { font-size:10px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; color:#648369; }
+.manager-summary__heading h3 { margin:4px 0 0; font-size:19px; font-weight:900; color:#1e3c2a; }
+.manager-summary__icon { background:#e6f3dc; color:#286d3e; width:42px; height:42px; flex-shrink:0;
+  display:grid; place-items:center; border-radius:13px; font-size:16px; font-weight:900; }
+.manager-summary__value { display:block; font-size:clamp(23px,2.4vw,35px); color:#145a34; font-weight:900;
+  font-variant-numeric:tabular-nums; overflow-wrap:anywhere; letter-spacing:-.025em; }
+.manager-summary__meta { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:10px;
+  font-size:12px; font-weight:700; color:#607462; }
+.manager-summary__share { color:#59765d; font-weight:700; font-size:11px; margin-top:-5px; }
+.manager-coverage { padding:13px 2px 0; font-size:12px; color:#627967; font-weight:700; }
+.manager-unassigned { background:#fff7e9; color:#825628; border:1px solid #ebd9b8; border-radius:12px;
+  padding:13px 16px; margin-top:13px; font-size:12px; line-height:1.55; }
+.manager-unassigned strong { font-weight:900; }
+.manager-unassigned span { display:block; margin-top:4px; color:#9a713e; }
+.manager-unassigned[hidden] { display:none; }
+.seller-team { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.salesperson-row { background:#fbfdf9; border:1px solid #e1ecda; border-radius:15px; padding:14px 16px;
+  display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; min-width:0; }
+.salesperson-row:hover { border-color:#b5d8a2; background:#f4faf0; }
+.salesperson-row__info { min-width:0; }
+.salesperson-row__info strong { display:block; font-size:13px; color:#203f2e; margin-bottom:4px;
+  font-weight:900; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; }
+.salesperson-row__info small { display:block; color:#68806c; font-size:11px; line-height:1.6; }
+.salesperson-row .progress { height:6px; margin-top:9px; }
+.salesperson-row__amount { font-size:13px; color:#205e3d; font-weight:900; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; }
+@media(max-width:850px) {
+  .manager-list.manager-team,.seller-team { grid-template-columns:1fr; }
+  .manager-summary { padding:18px; }
+}
+@media(max-width:520px) {
+  .team-structure-tag { width:100%; }
+  .salesperson-row { grid-template-columns:1fr; gap:6px; }
+  .salesperson-row__amount { text-align:left; }
+  .manager-summary__value { font-size:25px; }
+}
