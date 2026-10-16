@@ -1691,7 +1691,7 @@ async function fetchCloudPaymentHistory() {
       let complete=false;
       for(let page=0;page<Math.ceil(expected/limit)+2;page++){
         const {data,error}=await window.appSupabase.from('payment_history')
-          .select('id,customer_code,customer_name,seller,sap,invoice,issue_date,due_date,payment_date,amount,days_delay,source_status,prazo_pgto')
+          .select('id,customer_code,customer_name,seller,sap,invoice,issue_date,due_date,payment_date,amount,days_delay,source_status,prazo_pgto,data_quality')
           .order('id',{ascending:true}).range(page*limit,(page+1)*limit-1);
         if(error)throw error;
         rows.push(...(data||[]));
@@ -1705,8 +1705,9 @@ async function fetchCloudPaymentHistory() {
         customer:r.customer_code||'',name:r.customer_name,seller:r.seller||'',
         sap:r.sap||'',invoice:r.invoice||'',issueDate:r.issue_date||'',
         dueDate:r.due_date,payDate:r.payment_date,
-        value:Number(r.amount),delay:Number(r.days_delay),
-        sourceStatus:String(r.source_status||''),paymentTerm:r.prazo_pgto
+        value:Number(r.amount),delay:r.days_delay===null?null:Number(r.days_delay),
+        sourceStatus:String(r.source_status||''),paymentTerm:r.prazo_pgto,
+        dataQuality:String(r.data_quality||'ok')
       }));
       if(window.idbKeyval)try{
         await window.idbKeyval.set('compo_cloud_payments_v1',{key,rows});
