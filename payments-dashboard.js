@@ -144,7 +144,7 @@
     if(!target)return;
     const count=state.clientMenuOpen?state.clientsFiltered.length:state.clientsAll.length;
     target.textContent=count?
-      count.toLocaleString("pt-BR")+" cliente"+(count===1?"":"s")+" disponível"+(count===1?"":"is"):
+      count.toLocaleString("pt-BR")+(count===1?" cliente disponível":" clientes disponíveis"):
       state.data.length?"Nenhum cliente encontrado":"Aguardando dados do Supabase…";
   }
   function appendClientOptions(){
