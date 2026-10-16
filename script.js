@@ -1687,21 +1687,26 @@ async function fetchCloudPaymentHistory() {
       rows=[];
       const limit=1000;
       const expected=sources.reduce((a,x)=>a+Number(x.row_count||0),0);
-      if(expected>25000)throw new Error('Histórico acima de 25 mil pagamentos: é necessária paginação por filtros no servidor.');
-      for(let page=0;page<=25;page++){
+      if(expected>100000)throw new Error('Histórico muito grande: requer consulta paginada no servidor.');
+      let complete=false;
+      for(let page=0;page<Math.ceil(expected/limit)+2;page++){
         const {data,error}=await window.appSupabase.from('payment_history')
-          .select('id,customer_code,customer_name,seller,sap,invoice,issue_date,due_date,payment_date,amount,days_delay')
+          .select('id,customer_code,customer_name,seller,sap,invoice,issue_date,due_date,payment_date,amount,days_delay,source_status,prazo_pgto')
           .order('id',{ascending:true}).range(page*limit,(page+1)*limit-1);
         if(error)throw error;
         rows.push(...(data||[]));
-        if(!data?.length||data.length<limit)break;
+        if($('paymentsSourceCopy'))$('paymentsSourceCopy').textContent=
+          'Carregando registros reais do Supabase: '+rows.length+' de '+expected+'…';
+        if(!data?.length||data.length<limit){complete=true;break;}
       }
+      if(!complete)throw new Error('O histórico ultrapassou o limite seguro de páginas.');
       if(rows.length!==expected)throw new Error('Carregamento incompleto do histórico de pagamentos ('+rows.length+'/'+expected+').');
       rows=rows.map(r=>({
         customer:r.customer_code||'',name:r.customer_name,seller:r.seller||'',
         sap:r.sap||'',invoice:r.invoice||'',issueDate:r.issue_date||'',
         dueDate:r.due_date,payDate:r.payment_date,
-        value:Number(r.amount),delay:Number(r.days_delay)
+        value:Number(r.amount),delay:Number(r.days_delay),
+        sourceStatus:String(r.source_status||''),paymentTerm:r.prazo_pgto
       }));
       if(window.idbKeyval)try{
         await window.idbKeyval.set('compo_cloud_payments_v1',{key,rows});
