@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800;900&display=swap" rel="stylesheet">
   <link rel="icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="shortcut icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
-  <link rel="stylesheet" href="./style.css?v=20261016-managers-1" />
+  <link rel="stylesheet" href="./style.css?v=20261016-analytics-four-blocks-1" />
   <link rel="stylesheet" href="./payments-dashboard.css?v=20261016-client-picker-1" />
   <style>
     body { opacity: 0; transition: opacity 0.3s ease-in-out; }
@@ -343,55 +343,60 @@
     </section>
 
 
-    <section class="analytics-grid tab-pane" id="analytics">
-      <article class="card team-managers-card" id="gestores">
+    <section class="analytics-grid analytics-grid--four-blocks tab-pane" id="analytics" aria-label="Análises financeiras">
+      <!-- Linha superior: dois painéis compactos -->
+      <article class="card team-managers-card analytics-managers" id="gestores">
         <div class="card-head simple">
           <div>
-            <span class="section-kicker">Estrutura comercial · Gerentes</span>
-            <h2>Performance por gerente</h2>
-            <p class="chart-description">Consolidação dos vendedores vinculados a Júlio Canhete e Anderson Witt na planilha da equipe.</p>
+            <span class="section-kicker">Gestores</span>
+            <h2>Performance por gestor</h2>
+            <p class="chart-description">Saldo em atraso das equipes de Júlio Canhete e Anderson Witt.</p>
           </div>
-          <span class="team-structure-tag">2 gerentes</span>
+          <span class="team-structure-tag">2 gestores</span>
         </div>
         <div class="manager-list manager-team" id="managerList"></div>
         <div id="managerCoverage" class="manager-coverage" aria-live="polite"></div>
         <div id="managerUnassigned" class="manager-unassigned" role="status" hidden></div>
       </article>
 
-      <article class="card team-sellers-card" id="vendedores">
+      <article class="card analytics-aging" id="aging">
         <div class="card-head simple">
           <div>
-            <span class="section-kicker">Estrutura comercial · Vendedores</span>
+            <span class="section-kicker">Aging</span>
+            <h2>Faixas de atraso</h2>
+            <p class="chart-description">Distribuição dos títulos vencidos por faixa de dias.</p>
+          </div>
+        </div>
+        <canvas id="agingChart" width="620" height="300" aria-label="Gráfico de faixas de atraso"></canvas>
+      </article>
+
+      <!-- Linha inferior: dois painéis mais altos e detalhados -->
+      <article class="card team-sellers-card analytics-sellers" id="vendedores">
+        <div class="card-head simple">
+          <div>
+            <span class="section-kicker">Vendedores</span>
             <h2>Saldo por vendedor</h2>
-            <p class="chart-description">Todos os vendedores com títulos na seleção, ordenados pelo maior saldo em atraso.</p>
+            <p class="chart-description">Todos os vendedores com títulos em atraso, ordenados por saldo.</p>
           </div>
           <span id="sellerCount" class="team-structure-tag">Carregando equipe…</span>
         </div>
         <div class="seller-team" id="sellerList"></div>
       </article>
 
-      <article class="card" id="aging">
+      <article class="card analytics-clients" id="exposicao-cliente">
         <div class="card-head simple">
           <div>
-            <span class="section-kicker">Aging</span>
-            <h2>Faixas de atraso</h2>
+            <span class="section-kicker">Concentração de risco</span>
+            <h2>Exposição por cliente</h2>
+            <p class="chart-description">Os cinco clientes com maior saldo inadimplente no período selecionado.</p>
           </div>
-        </div>
-        <canvas id="agingChart" width="620" height="300"></canvas>
-      </article>
-
-      <article class="card">
-        <div class="card-head simple">
-          <div>
-            <span class="section-kicker">Maiores saldos</span>
-            <h2>Top 5 exposição</h2>
-          </div>
+          <span class="team-structure-tag">Top 5</span>
         </div>
         <div class="ranking" id="rankingList"></div>
       </article>
     </section>
 
-    <section class="legal-module tab-pane" id="monitor-empresarial">
+        <section class="legal-module tab-pane" id="monitor-empresarial">
       <div class="legal-hero">
         <div><span class="section-kicker">Radar de risco empresarial</span><h2>Monitoramento Empresarial</h2><p>Acompanhe empresas, processos públicos, alertas e a composição do risco em um só lugar.</p></div>
         <div class="legal-actions">
