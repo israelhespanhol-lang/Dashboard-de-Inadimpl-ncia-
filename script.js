@@ -1688,18 +1688,26 @@ async function fetchCloudPaymentHistory() {
       const limit=1000;
       const expected=sources.reduce((a,x)=>a+Number(x.row_count||0),0);
       if(expected>100000)throw new Error('Histórico muito grande: requer consulta paginada no servidor.');
-      let complete=false;
-      for(let page=0;page<Math.ceil(expected/limit)+2;page++){
-        const {data,error}=await window.appSupabase.from('payment_history')
-          .select('id,customer_code,customer_name,seller,sap,invoice,issue_date,due_date,payment_date,amount,days_delay,source_status,prazo_pgto,data_quality')
-          .order('id',{ascending:true}).range(page*limit,(page+1)*limit-1);
-        if(error)throw error;
-        rows.push(...(data||[]));
+      const pageCount=Math.ceil(expected/limit);
+      const selectColumns='id,customer_code,customer_name,seller,sap,invoice,issue_date,due_date,payment_date,amount,days_delay,source_status,prazo_pgto,data_quality';
+      // Quatro páginas em paralelo para melhorar a primeira abertura sem
+      // requisitar 36.175 linhas em um único pedido.
+      for(let startPage=0;startPage<pageCount;startPage+=4){
+        const pages=await Promise.all(
+          Array.from({length:Math.min(4,pageCount-startPage)},(_,batchIndex)=>{
+            const page=startPage+batchIndex;
+            return window.appSupabase.from('payment_history')
+              .select(selectColumns).order('id',{ascending:true})
+              .range(page*limit,Math.min((page+1)*limit,expected)-1);
+          })
+        );
+        for(const {data,error} of pages){
+          if(error)throw error;
+          rows.push(...(data||[]));
+        }
         if($('paymentsSourceCopy'))$('paymentsSourceCopy').textContent=
           'Carregando registros reais do Supabase: '+rows.length+' de '+expected+'…';
-        if(!data?.length||data.length<limit){complete=true;break;}
       }
-      if(!complete)throw new Error('O histórico ultrapassou o limite seguro de páginas.');
       if(rows.length!==expected)throw new Error('Carregamento incompleto do histórico de pagamentos ('+rows.length+'/'+expected+').');
       rows=rows.map(r=>({
         customer:r.customer_code||'',name:r.customer_name,seller:r.seller||'',
