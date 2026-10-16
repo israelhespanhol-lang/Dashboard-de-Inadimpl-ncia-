@@ -342,7 +342,34 @@
       </aside>
     </section>
 
+
     <section class="analytics-grid tab-pane" id="analytics">
+      <article class="card team-managers-card" id="gestores">
+        <div class="card-head simple">
+          <div>
+            <span class="section-kicker">Estrutura comercial · Gerentes</span>
+            <h2>Performance por gerente</h2>
+            <p class="chart-description">Consolidação dos vendedores vinculados a Júlio Canhete e Anderson Witt na planilha da equipe.</p>
+          </div>
+          <span class="team-structure-tag">2 gerentes</span>
+        </div>
+        <div class="manager-list manager-team" id="managerList"></div>
+        <div id="managerCoverage" class="manager-coverage" aria-live="polite"></div>
+        <div id="managerUnassigned" class="manager-unassigned" role="status" hidden></div>
+      </article>
+
+      <article class="card team-sellers-card" id="vendedores">
+        <div class="card-head simple">
+          <div>
+            <span class="section-kicker">Estrutura comercial · Vendedores</span>
+            <h2>Saldo por vendedor</h2>
+            <p class="chart-description">Todos os vendedores com títulos na seleção, ordenados pelo maior saldo em atraso.</p>
+          </div>
+          <span id="sellerCount" class="team-structure-tag">Carregando equipe…</span>
+        </div>
+        <div class="seller-team" id="sellerList"></div>
+      </article>
+
       <article class="card" id="aging">
         <div class="card-head simple">
           <div>
@@ -356,28 +383,8 @@
       <article class="card">
         <div class="card-head simple">
           <div>
-          <span class="section-kicker">Vendedores</span>
-            <h2>Saldo por vendedor</h2>
-          </div>
-        </div>
-        <canvas id="regionChart" width="620" height="300"></canvas>
-      </article>
-
-      <article class="card" id="gestores">
-        <div class="card-head simple">
-          <div>
-            <span class="section-kicker">Gestores</span>
-            <h2>Performance por gestor</h2>
-          </div>
-        </div>
-        <div class="manager-list" id="managerList"></div>
-      </article>
-
-      <article class="card">
-        <div class="card-head simple">
-          <div>
-          <span class="section-kicker">Maiores saldos</span>
-          <h2>Top 5 exposição</h2>
+            <span class="section-kicker">Maiores saldos</span>
+            <h2>Top 5 exposição</h2>
           </div>
         </div>
         <div class="ranking" id="rankingList"></div>
@@ -721,7 +728,8 @@
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js?v=20261015-2"></script>
   <script src="./payments-dashboard.js?v=20261015-cloud-1"></script>
-  <script src="./script.js?v=20261015-daily-rate-full-pagination-1"></script>
+  <script src="./assets/compo-team-assignments.js?v=20261016-team-1"></script>
+  <script src="./script.js?v=20261016-team-managers-1"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
