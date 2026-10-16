@@ -11,7 +11,7 @@
   <link rel="icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="shortcut icon" href="./assets/compo-expert-logo.svg?v=2" type="image/svg+xml" />
   <link rel="stylesheet" href="./style.css?v=20261016-managers-1" />
-  <link rel="stylesheet" href="./payments-dashboard.css?v=20261015-4" />
+  <link rel="stylesheet" href="./payments-dashboard.css?v=20261016-client-picker-1" />
   <style>
     body { opacity: 0; transition: opacity 0.3s ease-in-out; }
     body.auth-checked { opacity: 1; }
@@ -469,25 +469,17 @@
 
 
     <section class="payments-root tab-pane" id="historico-pagamentos" aria-labelledby="paymentsHeading">
-      <header class="payments-head">
-        <div class="payments-head__main">
-          <span class="payments-eyebrow">Compo Expert • Inteligência de recebimentos</span>
-          <h2 id="paymentsHeading">Performance de Pagamentos</h2>
-          <p>Visão executiva de pontualidade, valores recebidos, atrasos e comportamento histórico de cada cliente.</p>
+      <header class="payments-compact-header">
+        <div class="payments-compact-header__title">
+          <span class="payments-section-kicker">COMPO EXPERT · INTELIGÊNCIA DE RECEBIMENTOS</span>
+          <h2 id="paymentsHeading">Histórico de Pagamentos</h2>
+          <p>Consulte a pontualidade, os atrasos e o comportamento financeiro de cada cliente.</p>
         </div>
-        <div class="payments-head__actions">
-          <input id="paymentHistoryInput" type="file" accept=".xlsx,.xls,.csv" multiple hidden>
-          <button class="payments-btn payments-btn--outline" id="paymentHistoryMockBtn" type="button">◈ Dados demonstrativos</button>
-          <button class="payments-btn payments-btn--lime" id="paymentHistoryImportBtn" type="button">↑ Importar planilha</button>
-          <button class="payments-btn" id="payExportBtn" type="button">↓ Exportar CSV</button>
+        <div class="payments-compact-header__sync" aria-live="polite">
+          <span id="paymentsSourceBadge" class="payments-source__badge" data-kind="empty">○ CONECTANDO AO SUPABASE</span>
+          <span id="paymentsSourceCopy" class="payments-source__copy">Carregando histórico de pagamentos…</span>
         </div>
       </header>
-
-      <div class="payments-source" aria-live="polite">
-        <span id="paymentsSourceBadge" class="payments-source__badge" data-kind="empty">○ NENHUMA BASE IMPORTADA</span>
-        <span id="paymentsSourceCopy" class="payments-source__copy">Importe um arquivo XLSX/CSV para começar.</span>
-        <button type="button" id="paymentClearLocalBtn" class="payments-btn payments-btn--subtle" disabled>Limpar base local</button>
-      </div>
 
       <section class="payments-filters" aria-label="Filtros de pagamentos">
         <div class="payments-section-top">
@@ -504,9 +496,26 @@
           </div>
         </div>
         <div class="payments-filter-grid">
-          <label>Cliente, NF ou SAP
-            <input type="search" id="paySearch" placeholder="Pesquise um cliente ou documento" autocomplete="off">
-          </label>
+          <div class="payments-client-field">
+            <label for="paySearch">Cliente</label>
+            <div id="payClientCombobox" class="payments-client-combobox">
+              <div class="payments-client-control">
+                <input type="search" id="paySearch" role="combobox" aria-autocomplete="list"
+                  aria-haspopup="listbox" aria-expanded="false" aria-controls="payClientOptions"
+                  placeholder="Pesquisar ou selecionar cliente" autocomplete="off" spellcheck="false">
+                <button type="button" id="payClientToggle" class="payments-client-toggle"
+                  aria-label="Mostrar lista de clientes" title="Mostrar todos os clientes">⌄</button>
+              </div>
+              <div id="payClientMenu" class="payments-client-menu" hidden>
+                <div class="payments-client-menu__top">
+                  <span id="payClientCount" aria-live="polite">Carregando clientes…</span>
+                  <button type="button" id="payClientAll" class="payments-client-all">Todos os clientes</button>
+                </div>
+                <div id="payClientOptions" class="payments-client-options" role="listbox" aria-label="Clientes encontrados" tabindex="-1"></div>
+                <div id="payClientScrollHint" class="payments-client-scroll-hint" hidden>Role para ver mais clientes</div>
+              </div>
+            </div>
+          </div>
           <label>Vendedor
             <select id="paySeller"><option value="all">Todos os vendedores</option></select>
           </label>
@@ -658,7 +667,6 @@
           <span class="payments-muted">Clique no cabeçalho de uma coluna para ordenar os lançamentos.</span></div>
           <div class="payments-table-actions">
             <input type="search" id="payTableSearch" placeholder="Pesquisar nesta tabela">
-            <button type="button" id="payExportTableBtn" class="payments-btn payments-btn--subtle">↓ Exportar tabela</button>
           </div>
         </div>
         <div class="payments-table-wrap">
@@ -682,7 +690,7 @@
           <span id="payTableInfo">0 registros</span>
           <div><button type="button" id="payPagePrev">← Anterior</button> <button type="button" id="payPageNext">Próxima →</button></div>
         </div>
-        <p class="payments-local-note">A base oficial contém INVOICE VALUE (valor da nota), não um campo separado de valor efetivamente liquidado. O status EM DIA/EM ATRASO segue a classificação original da fonte, incluindo tolerância de um dia. O total não deve ser abatido novamente da carteira em aberto. Arquivos escolhidos manualmente ficam somente no navegador; dados da ponte oficial são armazenados no Supabase.</p>
+        <p class="payments-local-note">A base oficial contém INVOICE VALUE (valor da nota), não um campo separado de valor efetivamente liquidado. O status EM DIA/EM ATRASO segue a classificação original da fonte, incluindo tolerância de um dia. O total não deve ser abatido novamente da carteira em aberto. Os registros exibidos são consultados diretamente do Supabase.</p>
       </section>
     </section>
 
@@ -727,7 +735,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js?v=20261015-2"></script>
-  <script src="./payments-dashboard.js?v=20261016-payments-status-final-1"></script>
+  <script src="./payments-dashboard.js?v=20261016-client-picker-1"></script>
   <script src="./assets/compo-team-assignments.js?v=20261016-team-1"></script>
   <script src="./script.js?v=20261016-payments-realtime-bg-2"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
