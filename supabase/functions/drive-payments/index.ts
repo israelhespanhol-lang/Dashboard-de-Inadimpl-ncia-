@@ -53,8 +53,9 @@ function currencyOf(x:unknown):number|null{
 }
 type Row = {
  source_row:number;source_sheet:string;customer_code:string;customer_name:string;seller:string;
- sap:string;invoice:string;issue_date:string|null;due_date:string;payment_date:string;
- amount:number;days_delay:number;source_status:string;prazo_pgto:number|null;
+ sap:string;invoice:string;issue_date:string|null;due_date:string|null;payment_date:string;
+ amount:number;days_delay:number|null;source_status:string;prazo_pgto:number|null;
+ source_due_raw:string;data_quality:string;
 };
 function parseSheet(book:ExcelJS.Workbook){
  const sheet=book.getWorksheet(EXPECTED_SHEET);
@@ -67,23 +68,31 @@ function parseSheet(book:ExcelJS.Workbook){
  if(required.some(k=>!headers[k]))throw new Error("PAYMENT_HEADER_MISMATCH");
  const get=(row:ExcelJS.Row,name:string)=>valueOf(row.getCell(headers[name]));
  const rows:Row[]=[];
- let totalCents=0,sourceLate=0,sourceOnTime=0,oneDayGrace=0;
+ let totalCents=0,sourceLate=0,sourceOnTime=0,oneDayGrace=0,invalidDueRows=0;
  for(let i=2;i<=sheet.rowCount;i++){
   const r=sheet.getRow(i),name=String(get(r,"NAME")??"").trim();
   if(!name)throw new Error("EMPTY_CUSTOMER_IN_ROW_"+i);
+  const rawDue=String(get(r,"DUE DATE")??"").trim();
   const due=dateOf(get(r,"DUE DATE"));
   const paid=dateOf(get(r,"PAYMENT DATE"));
   const issue=dateOf(get(r,"INVOICE DATE"));
   const cents=currencyOf(get(r,"INVOICE VALUE"));
   const originalStatus=norm(get(r,"EM DIA/EM ATRASO"));
-  if(!due||!paid||!issue||cents===null||
+  if(!paid||!issue||cents===null||
    !["EM DIA","EM ATRASO"].includes(originalStatus))
     throw new Error("INVALID_PAYMENT_ROW_"+i);
-  const days=Math.round((Date.parse(paid+"T00:00:00Z")-Date.parse(due+"T00:00:00Z"))/86400000);
+  if(!due){
+    if(![26768,33539].includes(i)||rawDue!=="2")
+      throw new Error("UNEXPECTED_INVALID_DUE_DATE_ROW_"+i);
+    invalidDueRows++;
+  }
+  const days=due?Math.round((Date.parse(paid+"T00:00:00Z")-Date.parse(due+"T00:00:00Z"))/86400000):null;
   // A planilha original considera pagamentos um dia após o vencimento como EM DIA.
   // Preservar a classificação da fonte e registrar os dias efetivos separadamente.
-  if((days>1)!==(originalStatus==="EM ATRASO"))
+  if(days!==null && (days>1)!==(originalStatus==="EM ATRASO"))
     throw new Error("PAYMENT_STATUS_MISMATCH_ROW_"+i);
+  if(days===null && originalStatus!=="EM ATRASO")
+    throw new Error("UNEXPECTED_STATUS_WITHOUT_DUE_DATE_"+i);
   if(days===1&&originalStatus==="EM DIA")oneDayGrace++;
   const term=Number(get(r,"PRAZO PGTO"));
   rows.push({
@@ -93,14 +102,16 @@ function parseSheet(book:ExcelJS.Workbook){
    invoice:String(get(r,"INVOICE NUMBER")??"").trim(),
    issue_date:issue,due_date:due,payment_date:paid,
    amount:cents/100,days_delay:days,source_status:originalStatus,
-   prazo_pgto:Number.isInteger(term)?term:null
+   prazo_pgto:Number.isInteger(term)?term:null,
+   source_due_raw:due?"":rawDue,
+   data_quality:due?"ok":"invalid_due_date"
   });
   totalCents+=cents;
   if(originalStatus==="EM ATRASO")sourceLate++;else sourceOnTime++;
  }
  if(rows.length!==EXPECTED_COUNT||totalCents!==EXPECTED_CENTS)
   throw new Error("FILE_TOTALS_MISMATCH: rows="+rows.length+" cents="+totalCents);
- return {rows,totalCents,sourceLate,sourceOnTime,oneDayGrace};
+ return {rows,totalCents,sourceLate,sourceOnTime,oneDayGrace,invalidDueRows};
 }
 
 Deno.serve(async req=>{
@@ -124,7 +135,7 @@ Deno.serve(async req=>{
   const preview={fileName:filename,
    sourceHash:hash,rowCount:parsed.rows.length,totalReceived:parsed.totalCents/100,
    sourceOnTime:parsed.sourceOnTime,sourceOverdue:parsed.sourceLate,
-   oneDayGraceClassifications:parsed.oneDayGrace,
+   oneDayGraceClassifications:parsed.oneDayGrace,invalidDueDates:parsed.invalidDueRows,
    dateRule:"Classificação EM DIA/EM ATRASO preservada da planilha; tolerância observada de 1 dia.",
    valueRule:"O XLSX contém INVOICE VALUE; é valor da nota nos registros de pagamentos."};
   if(mode==="validate")return response({status:"VALIDATED_NO_WRITE",...preview});
