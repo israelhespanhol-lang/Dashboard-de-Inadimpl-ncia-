@@ -19,7 +19,9 @@
   const state = {
     data:[], source:"none", sourceName:"", filtered:[], tableSearch:"",
     period:"all", rank:"value", orderBy:"payDate", orderDir:"desc", page:0,
-    initialized:false, lastData:null, lastSource:"", timelineKey:""
+    initialized:false, lastData:null, lastSource:"", timelineKey:"",
+    selectedClient:null, clientsAll:[], clientsFiltered:[], clientsRendered:0,
+    clientMenuOpen:false, activeClientIndex:-1
   };
   const el=id=>document.getElementById(id);
   const escape=v=>String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;")
@@ -37,6 +39,12 @@
   };
   const setText=(id,v)=>{if(el(id))el(id).textContent=v;};
   const num=(x)=>Number.isFinite(Number(x))?Number(x):0;
+  const normalizeClientText=value=>String(value??"").normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"").trim().replace(/\s+/g," ").toLocaleLowerCase("pt-BR");
+  const clientKeyFor=row=>{
+    const code=normalizeClientText(row.customer);
+    return code?"C:"+code:"N:"+normalizeClientText(row.name);
+  };
   function normalize(row){
     if(!row || !row.name || !row.payDate)return null;
     const delay=row.delay===null||row.delay===undefined||row.delay===""?null:Number(row.delay);
@@ -54,7 +62,8 @@
       value:amount,delay,
       sourceStatus:String(row.sourceStatus||"").toUpperCase().trim(),
       paymentTerm:row.paymentTerm??null,
-      dataQuality:String(row.dataQuality||"ok")
+      dataQuality:String(row.dataQuality||"ok"),
+      clientKey:clientKeyFor(row)
     };
   }
   // A planilha utiliza tolerância observada de um dia após vencimento para "EM DIA".
@@ -91,12 +100,13 @@
       state.source==="local"?
       (state.sourceName?state.sourceName+" • ":"")+"Os arquivos permanecem neste navegador, sem envio automático ao banco.":
       state.source==="demo"?"Exemplo fictício apenas para conhecer os gráficos; não representa dados reais.":
-      "Importe uma planilha XLSX/CSV de pagamentos para começar a análise.";
+      "Aguardando carregamento do histórico oficial de pagamentos no Supabase.";
     const c=el("paymentClearLocalBtn");if(c)c.disabled=state.source!=="local"&&state.source!=="demo";
   }
   function readControls(){
     return {
-      search:(el("paySearch")?.value||"").trim().toLocaleLowerCase("pt-BR"),
+      search:normalizeClientText(el("paySearch")?.value||""),
+      selectedClient:state.selectedClient?.key||null,
       seller:el("paySeller")?.value||"all",
       status:el("payStatus")?.value||"all",
       band:el("payDelayBand")?.value||"all",
@@ -106,13 +116,168 @@
       end:el("payTo")?.value||""
     };
   }
+
+  // Lista de clientes montada a partir das linhas oficiais já recuperadas do Supabase.
+  // Usa a identificação da fonte para distinguir clientes de mesmo nome.
+  function buildClientList(){
+    const map=new Map();
+    for(const row of state.data){
+      const key=row.clientKey;
+      if(!key)continue;
+      if(!map.has(key)){
+        map.set(key,{key,name:row.name,code:row.customer||"",count:0,
+          search:normalizeClientText(row.name+" "+row.customer)});
+      }
+      map.get(key).count++;
+    }
+    state.clientsAll=[...map.values()].sort((a,b)=>
+      a.name.localeCompare(b.name,"pt-BR",{sensitivity:"base"}) || a.code.localeCompare(b.code,"pt-BR"));
+    if(state.selectedClient&&!map.has(state.selectedClient.key)){
+      state.selectedClient=null;
+      if(el("paySearch"))el("paySearch").value="";
+    }
+    if(state.clientMenuOpen)renderClientOptions();
+    else updateClientListCount();
+  }
+  function updateClientListCount(){
+    const target=el("payClientCount");
+    if(!target)return;
+    const count=state.clientMenuOpen?state.clientsFiltered.length:state.clientsAll.length;
+    target.textContent=count?
+      count.toLocaleString("pt-BR")+" cliente"+(count===1?"":"s")+" disponível"+(count===1?"":"is"):
+      state.data.length?"Nenhum cliente encontrado":"Aguardando dados do Supabase…";
+  }
+  function appendClientOptions(){
+    const list=el("payClientOptions"),hint=el("payClientScrollHint");
+    if(!list)return;
+    const end=Math.min(state.clientsRendered+100,state.clientsFiltered.length);
+    let html="";
+    for(let i=state.clientsRendered;i<end;i++){
+      const client=state.clientsFiltered[i];
+      html+='<button type="button" role="option" class="payments-client-option" id="payClientOption-'+i+
+        '" data-client-index="'+i+'" aria-selected="'+String(state.selectedClient?.key===client.key)+'">'+
+        '<span class="payments-client-option__main">'+
+        '<span class="payments-client-option__name">'+escape(client.name)+'</span>'+
+        '<span class="payments-client-option__id">'+(client.code?"Código: "+escape(client.code):"Sem código cadastrado")+'</span>'+
+        '</span><span class="payments-client-option__count">'+client.count+' pagamento'+(client.count===1?"":"s")+'</span></button>';
+    }
+    list.insertAdjacentHTML("beforeend",html);
+    state.clientsRendered=end;
+    if(hint)hint.hidden=end>=state.clientsFiltered.length;
+  }
+  function renderClientOptions(){
+    const list=el("payClientOptions");
+    if(!list)return;
+    const term=state.selectedClient?"":normalizeClientText(el("paySearch")?.value);
+    state.clientsFiltered=term?
+      state.clientsAll.filter(c=>c.search.includes(term)):state.clientsAll;
+    state.clientsRendered=0;
+    state.activeClientIndex=-1;
+    list.innerHTML="";
+    list.scrollTop=0;
+    if(!state.clientsFiltered.length){
+      list.innerHTML='<div class="payments-client-empty">'+
+        (state.data.length?"Nenhum cliente encontrado. Tente outro nome ou código.":"Aguardando clientes do Supabase…")+
+        '</div>';
+    }else appendClientOptions();
+    updateClientListCount();
+    el("paySearch")?.removeAttribute("aria-activedescendant");
+  }
+  function openClientMenu(){
+    const menu=el("payClientMenu");
+    if(!menu)return;
+    menu.hidden=false;
+    state.clientMenuOpen=true;
+    el("payClientCombobox")?.classList.add("is-open");
+    el("paySearch")?.setAttribute("aria-expanded","true");
+    renderClientOptions();
+  }
+  function closeClientMenu(){
+    const menu=el("payClientMenu");
+    if(menu)menu.hidden=true;
+    state.clientMenuOpen=false;
+    state.activeClientIndex=-1;
+    el("payClientCombobox")?.classList.remove("is-open");
+    el("paySearch")?.setAttribute("aria-expanded","false");
+    el("paySearch")?.removeAttribute("aria-activedescendant");
+  }
+  function chooseClient(client){
+    if(!client)return;
+    state.selectedClient={key:client.key,name:client.name,code:client.code};
+    if(el("paySearch"))el("paySearch").value=client.name;
+    closeClientMenu();
+    onInputChange();
+  }
+  function clearClientSelection(openMenu=false){
+    state.selectedClient=null;
+    if(el("paySearch"))el("paySearch").value="";
+    if(openMenu)openClientMenu();else closeClientMenu();
+    onInputChange();
+  }
+  function highlightClientOption(index){
+    const items=state.clientsFiltered;
+    if(!items.length)return;
+    state.activeClientIndex=Math.max(0,Math.min(items.length-1,index));
+    while(state.clientsRendered<=state.activeClientIndex)appendClientOptions();
+    const list=el("payClientOptions"),option=list?.querySelector(
+      '[data-client-index="'+state.activeClientIndex+'"]');
+    if(!option)return;
+    list.querySelectorAll(".payments-client-option.is-active")
+      .forEach(node=>node.classList.remove("is-active"));
+    option.classList.add("is-active");
+    option.scrollIntoView({block:"nearest"});
+    el("paySearch")?.setAttribute("aria-activedescendant",option.id);
+  }
+  function initClientPicker(){
+    const input=el("paySearch"),list=el("payClientOptions");
+    if(!input||!list)return;
+    input.addEventListener("focus",()=>{if(!state.clientMenuOpen)openClientMenu();});
+    input.addEventListener("input",()=>{
+      state.selectedClient=null;
+      if(!state.clientMenuOpen)openClientMenu();else renderClientOptions();
+      onInputChange();
+    });
+    input.addEventListener("keydown",event=>{
+      if(event.key==="Escape"){closeClientMenu();return;}
+      if(event.key==="ArrowDown"||event.key==="ArrowUp"){
+        event.preventDefault();
+        if(!state.clientMenuOpen)openClientMenu();
+        highlightClientOption(state.activeClientIndex+(event.key==="ArrowDown"?1:-1));
+      }else if(event.key==="Enter"&&state.clientMenuOpen){
+        event.preventDefault();
+        const index=state.activeClientIndex>=0?state.activeClientIndex:0;
+        if(state.clientsFiltered[index])chooseClient(state.clientsFiltered[index]);
+      }
+    });
+    el("payClientToggle")?.addEventListener("click",()=>{
+      if(state.clientMenuOpen){closeClientMenu();}
+      else{openClientMenu();input.focus();}
+    });
+    el("payClientAll")?.addEventListener("click",()=>clearClientSelection());
+    list.addEventListener("click",event=>{
+      const button=event.target.closest("button[data-client-index]");
+      if(!button)return;
+      const index=Number(button.dataset.clientIndex);
+      if(Number.isInteger(index))chooseClient(state.clientsFiltered[index]);
+    });
+    list.addEventListener("scroll",()=>{
+      if(list.scrollTop+list.clientHeight>=list.scrollHeight-65)appendClientOptions();
+    });
+    document.addEventListener("pointerdown",event=>{
+      if(state.clientMenuOpen&&!el("payClientCombobox")?.contains(event.target))closeClientMenu();
+    });
+    updateClientListCount();
+  }
+
   function dayCutoff(days){
     const now=new Date();const d=new Date(Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()-days+1));return d.toISOString().slice(0,10);
   }
   function sourceRows(){
     const f=readControls();
     let rows=state.data.filter(r=>{
-      if(f.search && ![r.name,r.customer,r.invoice,r.sap].join(" ").toLocaleLowerCase("pt-BR").includes(f.search))return false;
+      if(f.selectedClient && r.clientKey!==f.selectedClient)return false;
+      if(!f.selectedClient && f.search &&
+         !normalizeClientText(r.name+" "+r.customer).includes(f.search))return false;
       if(f.seller!=="all" && r.seller!==f.seller)return false;
       if(f.status==="early" && r.delay>=0)return false;
       if(f.status==="onTime" && (isLatePayment(r)||r.delay<0))return false;
@@ -395,10 +560,11 @@
   function init(){
     if(state.initialized||!el("historico-pagamentos"))return;
     state.initialized=true;
-    const filterNames=["paySearch","paySeller","payStatus","payDelayBand","payMinValue","payRecurring","payFrom","payTo"];
+    initClientPicker();
+    const filterNames=["paySeller","payStatus","payDelayBand","payMinValue","payRecurring","payFrom","payTo"];
     filterNames.forEach(name=>{
       const input=el(name);
-      if(input)input.addEventListener(name==="paySearch"||name==="payMinValue"?"input":"change",onInputChange);
+      if(input)input.addEventListener(name==="payMinValue"?"input":"change",onInputChange);
     });
     document.querySelectorAll("[data-pay-period]").forEach(button=>button.addEventListener("click",()=>setPeriod(button.dataset.payPeriod)));
     document.querySelectorAll("[data-pay-rank]").forEach(button=>button.addEventListener("click",()=>{
@@ -421,7 +587,10 @@
       ["paySearch","payMinValue","payFrom","payTo","payTableSearch"].forEach(id=>{if(el(id))el(id).value="";});
       ["paySeller","payStatus","payDelayBand"].forEach(id=>{if(el(id))el(id).value="all";});
       if(el("payRecurring"))el("payRecurring").checked=false;
-      state.tableSearch="";setPeriod("all");
+      state.tableSearch="";
+      state.selectedClient=null;
+      closeClientMenu();
+      setPeriod("all");
     });
     el("paymentsTimelineDetails")?.addEventListener("toggle",()=>{state.timelineKey="";renderTimeline(state.filtered);});
     el("paymentClearLocalBtn")?.addEventListener("click",async()=>{
@@ -441,6 +610,7 @@
       state.data=rows.map(normalize).filter(Boolean);
       state.lastData=rows;
       fillSelect("paySeller",state.data.map(r=>r.seller),"Todos os vendedores");
+      buildClientList();
       state.timelineKey="";
     }
     if(!state.data.length && state.source!=="none")setSource("none","");
