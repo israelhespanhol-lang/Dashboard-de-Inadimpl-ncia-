@@ -123,3 +123,53 @@
 body.show-payments-focus .hero,
 body.show-payments-focus .global-filters { display:none!important; }
 body.show-payments-focus .main { padding-top:22px; }
+
+
+/* Histórico alimentado pelo Supabase: cabeçalho discreto no lugar do banner verde. */
+.payments-compact-header {
+  display:flex; justify-content:space-between; align-items:center; gap:20px;
+  padding:14px 6px 20px; margin-bottom:17px; border-bottom:1px solid #dfebdd;
+  background:transparent; color:#1a3625;
+}
+.payments-compact-header__title { min-width:0; }
+.payments-compact-header__title h2 { color:#173c29; font-size:clamp(23px,2.5vw,31px); font-weight:900; letter-spacing:-.025em; margin:5px 0 6px; }
+.payments-compact-header__title p { color:#687d6d; font-size:13px; line-height:1.6; margin:0; }
+.payments-compact-header__sync { display:flex; flex-direction:column; gap:6px; max-width:340px; align-items:flex-end; text-align:right; }
+.payments-compact-header__sync .payments-source__badge { font-size:10px; white-space:nowrap; }
+.payments-compact-header__sync .payments-source__copy { max-width:340px; font-size:11px; line-height:1.5; }
+.payments-client-field { display:flex; flex-direction:column; gap:6px; min-width:0; position:relative; z-index:6; }
+.payments-client-field > label { display:block; font-weight:800; color:#495d4e; font-size:11px; }
+.payments-client-combobox { position:relative; width:100%; }
+.payments-client-control { display:flex; align-items:center; position:relative; }
+.payments-client-control #paySearch { width:100%; padding:10px 43px 10px 12px; min-width:0; height:42px;
+  border:1px solid #dbe7d8; background:#fafcf9; color:#173926; border-radius:11px; font-size:12px; outline:0; }
+.payments-client-control #paySearch:focus { border-color:#4ca363; box-shadow:0 0 0 3px #d6efda; }
+.payments-client-toggle { position:absolute; right:5px; top:5px; height:32px; width:32px; display:grid; place-items:center; font-size:20px;
+  padding:0; background:transparent; border:0; color:#34774b; border-radius:8px; transition:transform .14s,background .14s; }
+.payments-client-toggle:hover { background:#e8f4e6; }
+.payments-client-combobox.is-open .payments-client-toggle { transform:rotate(180deg); }
+.payments-client-menu { position:absolute; z-index:90; top:calc(100% + 6px); left:0; right:0; min-width:min(100%,300px);
+  background:#fff; box-shadow:0 16px 40px rgba(14,62,37,.17); border:1px solid #c9dec9; border-radius:13px; overflow:hidden; }
+.payments-client-menu[hidden] { display:none!important; }
+.payments-client-menu__top { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  background:#f4f9f3; padding:11px 13px; border-bottom:1px solid #e1eddf; font-size:11px; font-weight:700; color:#637a66; }
+.payments-client-all { background:white; border:1px solid #c9dfc8; border-radius:8px; padding:5px 8px;
+  color:#176c3b; font-size:11px; font-weight:800; }
+.payments-client-all:hover { background:#e8f5e5; }
+.payments-client-options { max-height:min(355px,52vh); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; padding:6px; }
+.payments-client-option { display:flex; gap:10px; width:100%; padding:10px; border:0; border-radius:9px; background:white;
+  color:#1e3b2b; text-align:left; align-items:center; justify-content:space-between; cursor:pointer; }
+.payments-client-option:hover, .payments-client-option.is-active, .payments-client-option:focus-visible { background:#edf7e9; outline:none; }
+.payments-client-option[aria-selected="true"] { background:#e5f5e3; }
+.payments-client-option__main { min-width:0; flex:1; display:flex; flex-direction:column; gap:3px; }
+.payments-client-option__name { font-size:12px; font-weight:850; white-space:normal; overflow-wrap:anywhere; line-height:1.4; }
+.payments-client-option__id { color:#758675; font-size:10px; }
+.payments-client-option__count { flex:none; font-size:10px; font-weight:700; color:#638063; text-align:right; }
+.payments-client-empty { padding:22px 12px; color:#6b7f6d; font-size:12px; text-align:center; line-height:1.5; }
+.payments-client-scroll-hint { padding:7px 13px; font-size:10px; text-align:center; color:#628166; background:#f7fbf5; border-top:1px solid #eef3eb; }
+.payments-client-scroll-hint[hidden] { display:none!important; }
+@media(max-width:760px) {
+  .payments-compact-header { flex-direction:column; align-items:flex-start; padding:13px 1px 18px; }
+  .payments-compact-header__sync { align-items:flex-start; text-align:left; max-width:100%; }
+  .payments-client-menu { min-width:100%; }
+}
