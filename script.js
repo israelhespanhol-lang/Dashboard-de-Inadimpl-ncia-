@@ -1764,15 +1764,8 @@ async function init(){
      return;
   }
   
-  // Restaura somente a base de pagamentos local deste navegador.
-  // Nunca interpreta esses registros como sincronizados com o Supabase.
-  const savedPayments = await window.PaymentDashboard?.restore();
-  if(savedPayments?.rows?.length){
-    state.paymentBase=savedPayments.rows;
-    window.PaymentDashboard?.setSource("local",savedPayments.filename||"Histórico salvo neste navegador");
-  }
-  // Busca a base oficial em segundo plano: não trava a página inteira ao
-  // carregar as mais de 36 mil linhas na primeira visita.
+  // A base de pagamentos é oficial e vem somente do Supabase.
+  // Não restaurar antigos testes ou planilhas importadas localmente.
   void fetchCloudPaymentHistory().then(loaded => {
     if (loaded) renderPaymentHistory();
   });
@@ -1888,73 +1881,9 @@ async function init(){
   setupFinancialInteraction();
   setupEvolutionInteraction();
   setupRateInteraction();
-  $('paymentHistoryImportBtn')?.addEventListener('click', () => $('paymentHistoryInput')?.click());
-  $('paymentHistoryInput')?.addEventListener('change', async event => {
-    const files=[...event.target.files];
-    if(!files.length)return;
-    const button=$('paymentHistoryImportBtn');
-    if(button)button.disabled=true;
-    const warnings=[],merged=[];
-    try {
-      for(const file of files){
-        if(!/\.(xlsx|xls|csv)$/i.test(file.name)){warnings.push(file.name+": formato não suportado.");continue;}
-        try {
-          const data=await parsePaymentSpreadsheet(file);
-          merged.push(...data.rows);
-          warnings.push(...data.warnings.map(w=>file.name+" — "+w));
-        }catch(error){warnings.push(file.name+": "+error.message);}
-      }
-      if(!merged.length)throw new Error("Nenhum pagamento válido encontrado nos arquivos escolhidos.");
-      // Uma seleção substitui a base local anterior; selecionar vários arquivos consolida o histórico.
-      state.paymentBase=merged.sort((a,b)=>a.payDate.localeCompare(b.payDate));
-      window.PaymentDashboard?.setSource("local",files.length===1?files[0].name:files.length+" arquivos selecionados");
-      await window.PaymentDashboard?.persist(state.paymentBase,files.length===1?files[0].name:files.length+" arquivos");
-      renderPaymentHistory();
-      if(warnings.length){
-        console.warn("Avisos na importação de pagamentos:",warnings);
-        alert(merged.length+" pagamentos carregados. "+warnings.length+" aviso(s). Verifique o console para detalhes.");
-      }
-    }catch(error){
-      alert("Erro ao importar pagamentos: "+error.message);
-    }finally{
-      if(button)button.disabled=false;
-      event.target.value="";
-    }
-  });
+  // Histórico de Pagamentos consulta apenas o Supabase:
+  // ações antigas de importação/exportação e demonstração foram desativadas.
 
-  $('paymentHistoryMockBtn')?.addEventListener('click', () => {
-    const mock = [];
-    const simulatedClients = ['AGRO VERDE SIMULADO','FAZENDA MODELO','CAMPO IDEAL EXEMPLO','TERRA NOVA FICTÍCIA','SERRA SUL SIMULADA','DISTRIBUIDORA DEMO','RURAL TESTE','CERRADO EXEMPLAR','AGROVITA FICTÍCIA','COOPERATIVA MODELO','COLHEITA EXEMPLO','VALE RURAL DEMO'];
-    const simulatedSellers = ['VENDEDOR DEMO A','VENDEDOR DEMO B','VENDEDOR DEMO C','VENDEDOR DEMO D'];
-    const baseDate = new Date();
-    for (let i=0; i<420; i++) {
-      const d = new Date(baseDate);
-      d.setDate(d.getDate() - Math.floor(Math.random() * 680));
-      const pay = new Date(d);
-      const isLate = Math.random() > 0.60;
-      const delay = isLate ? Math.floor(Math.random() * 85) + 1 : -Math.floor(Math.random() * 7);
-      pay.setDate(pay.getDate() + delay);
-      mock.push({
-        customer: 'DEMO-'+String(i%simulatedClients.length+1).padStart(3,'0'),
-        name: simulatedClients[i%simulatedClients.length],
-        seller: simulatedSellers[i%simulatedSellers.length],
-        sap: 'SIM-'+String(10000+i),
-        invoice: 'NF-DEMO-'+(1000+i),
-        issueDate: toIsoDate(new Date(d.getTime() - 86400000*30)),
-        dueDate: toIsoDate(d),
-        payDate: toIsoDate(pay),
-        value: 3000 + Math.random()*75000,
-        delay,
-        status: delay > 0 ? 'Atrasado' : delay === 0 ? 'No Prazo' : 'Adiantado'
-      });
-    }
-    state.paymentBase = mock.sort((a,b) => a.payDate.localeCompare(b.payDate));
-    window.PaymentDashboard?.setSource("demo","Exemplo ilustrativo fictício");
-    renderPaymentHistory();
-  });
-  
-
-  
   window.addEventListener('resize', renderAll);
   renderAll();
   // Busca ~60 resumos mensais, independentemente do total de títulos do banco.
