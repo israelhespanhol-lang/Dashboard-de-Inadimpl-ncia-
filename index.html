@@ -523,8 +523,8 @@
             <select id="payDelayBand">
               <option value="all">Todas as faixas</option>
               <option value="early">Antecipado</option>
-              <option value="ontime">0 dias</option>
-              <option value="1-7">1–7 dias</option>
+              <option value="ontime">Em dia (até 1 dia)</option>
+              <option value="1-7">2–7 dias em atraso</option>
               <option value="8-15">8–15 dias</option>
               <option value="16-30">16–30 dias</option>
               <option value="31-60">31–60 dias</option>
@@ -563,12 +563,12 @@
       </div>
       <section class="payments-kpis" aria-label="Indicadores de pagamento">
         <article class="payments-kpi">
-          <div class="payments-kpi__name">Valor recebido <span class="payments-kpi__icon">R$</span></div>
+          <div class="payments-kpi__name">Valor histórico das notas pagas <span class="payments-kpi__icon">R$</span></div>
           <div class="payments-kpi__value" id="payKpiTotal">—</div>
           <div class="payments-kpi__desc" id="payKpiTotalHint">Aguardando arquivo</div>
         </article>
         <article class="payments-kpi">
-          <div class="payments-kpi__name">Pagamentos sem atraso <span class="payments-kpi__icon">✓</span></div>
+          <div class="payments-kpi__name">Pagamentos em dia (fonte) <span class="payments-kpi__icon">✓</span></div>
           <div class="payments-kpi__value" id="payKpiOn">—</div>
           <div class="payments-kpi__desc" id="payKpiOnHint">Pagos no prazo ou antecipados</div>
         </article>
@@ -682,7 +682,7 @@
           <span id="payTableInfo">0 registros</span>
           <div><button type="button" id="payPagePrev">← Anterior</button> <button type="button" id="payPageNext">Próxima →</button></div>
         </div>
-        <p class="payments-local-note">Esta aba analisa pagamentos efetivamente registrados na planilha importada. Valores recebidos não devem ser abatidos novamente da carteira em aberto, que já pode refletir baixas. Os arquivos não são enviados automaticamente ao Supabase.</p>
+        <p class="payments-local-note">A base oficial contém INVOICE VALUE (valor da nota), não um campo separado de valor efetivamente liquidado. O status EM DIA/EM ATRASO segue a classificação original da fonte, incluindo tolerância de um dia. O total não deve ser abatido novamente da carteira em aberto. Arquivos escolhidos manualmente ficam somente no navegador; dados da ponte oficial são armazenados no Supabase.</p>
       </section>
     </section>
 
@@ -727,9 +727,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-client.js"></script>
   <script src="./compo-payment-timeline.js?v=20261015-2"></script>
-  <script src="./payments-dashboard.js?v=20261015-cloud-1"></script>
+  <script src="./payments-dashboard.js?v=20261016-payments-status-1"></script>
   <script src="./assets/compo-team-assignments.js?v=20261016-team-1"></script>
-  <script src="./script.js?v=20261016-team-managers-1"></script>
+  <script src="./script.js?v=20261016-payments-real-1"></script>
   <script src="./legal-monitor.js?v=20260826-6"></script>
 </body>
 </html>
