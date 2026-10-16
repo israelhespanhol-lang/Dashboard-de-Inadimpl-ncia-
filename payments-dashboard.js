@@ -8,12 +8,13 @@
   const bins = [
     {id:"early",label:"Antecipado",color:colors[0],test:r=>r.delay<0},
     {id:"ontime",label:"Em dia (fonte)",color:colors[1],test:r=>!isLatePayment(r)&&r.delay>=0},
-    {id:"1-7",label:"2–7 dias em atraso",color:colors[2],test:r=>isLatePayment(r)&&r.delay<=7},
+    {id:"1-7",label:"2–7 dias em atraso",color:colors[2],test:r=>r.delay!==null&&isLatePayment(r)&&r.delay>=2&&r.delay<=7},
     {id:"8-15",label:"8–15 dias",color:colors[3],test:r=>isLatePayment(r)&&r.delay>=8&&r.delay<=15},
     {id:"16-30",label:"16–30 dias",color:colors[4],test:r=>isLatePayment(r)&&r.delay>=16&&r.delay<=30},
     {id:"31-60",label:"31–60 dias",color:colors[5],test:r=>isLatePayment(r)&&r.delay>=31&&r.delay<=60},
     {id:"61-90",label:"61–90 dias",color:colors[6],test:r=>isLatePayment(r)&&r.delay>=61&&r.delay<=90},
-    {id:"90+",label:"Mais de 90 dias",color:colors[7],test:r=>isLatePayment(r)&&r.delay>90}
+    {id:"90+",label:"Mais de 90 dias",color:colors[7],test:r=>isLatePayment(r)&&r.delay>90},
+    {id:"unknown",label:"Vencimento a conferir",color:"#8c9b8c",test:r=>r.delay===null}
   ];
   const state = {
     data:[], source:"none", sourceName:"", filtered:[], tableSearch:"",
@@ -38,9 +39,9 @@
   const num=(x)=>Number.isFinite(Number(x))?Number(x):0;
   function normalize(row){
     if(!row || !row.name || !row.payDate)return null;
-    const delay=Number(row.delay);
+    const delay=row.delay===null||row.delay===undefined||row.delay===""?null:Number(row.delay);
     const amount=Number(row.value);
-    if(!Number.isFinite(delay)||!Number.isFinite(amount)||!/^\d{4}-\d{2}-\d{2}$/.test(String(row.payDate)))return null;
+    if((delay!==null&&!Number.isFinite(delay))||!Number.isFinite(amount)||!/^\d{4}-\d{2}-\d{2}$/.test(String(row.payDate)))return null;
     return {
       customer:String(row.customer||""),
       name:String(row.name||"").trim(),
@@ -52,7 +53,8 @@
       payDate:String(row.payDate||""),
       value:amount,delay,
       sourceStatus:String(row.sourceStatus||"").toUpperCase().trim(),
-      paymentTerm:row.paymentTerm??null
+      paymentTerm:row.paymentTerm??null,
+      dataQuality:String(row.dataQuality||"ok")
     };
   }
   // A planilha utiliza tolerância observada de um dia após vencimento para "EM DIA".
@@ -151,7 +153,8 @@
     const on=rows.filter(r=>!isLatePayment(r)),late=rows.filter(isLatePayment);
     const onValue=on.reduce((a,r)=>a+r.value,0);
     const lateValue=late.reduce((a,r)=>a+r.value,0);
-    const avg=late.length?late.reduce((a,r)=>a+r.delay,0)/late.length:0;
+    const lateWithDates=late.filter(r=>r.delay!==null);
+    const avg=lateWithDates.length?lateWithDates.reduce((a,r)=>a+r.delay,0)/lateWithDates.length:0;
     const maximum=late.reduce((m,r)=>Math.max(m,r.delay),0);
     const recurring=groupedClients(rows).filter(r=>r.lateCount>=2).length;
     const empty=!state.data.length, noMatches=!rows.length;
@@ -272,7 +275,7 @@
     const late=rows.filter(isLatePayment);
     const on=rows.filter(r=>!isLatePayment(r));
     const lateValue=late.reduce((a,r)=>a+r.value,0);
-    const delayed=late.map(r=>r.delay).sort((a,b)=>a-b);
+    const delayed=late.filter(r=>r.delay!==null).map(r=>r.delay).sort((a,b)=>a-b);
     const median=delayed.length? (delayed.length%2?delayed[(delayed.length-1)/2]:
       (delayed[delayed.length/2-1]+delayed[delayed.length/2])/2):0;
     const after30=rows.filter(r=>r.delay>30),after60=rows.filter(r=>r.delay>60);
@@ -302,7 +305,8 @@
       return String(va).localeCompare(String(vb),"pt-BR",{numeric:true})*dir;
     });
   }
-  function statusFor(r){return isLatePayment(r)?{label:"Em atraso",css:"late"}:
+  function statusFor(r){return isLatePayment(r)&&r.delay===null?{label:"Atrasado • conferir venc.",css:"late"}:
+    isLatePayment(r)?{label:"Em atraso",css:"late"}:
     r.delay<0?{label:"Antecipado",css:"early"}:
     r.sourceStatus==="EM DIA" && r.delay===1?{label:"Em dia (1 dia tolerado)",css:"on"}:
     {label:"Em dia",css:"on"};}
@@ -321,7 +325,7 @@
         '<td>'+escape(r.sap||"—")+'</td><td>'+escape(r.invoice||"—")+'</td>'+
         '<td>'+date(r.issueDate)+'</td><td>'+date(r.dueDate)+'</td><td>'+date(r.payDate)+'</td>'+
         '<td><strong>'+escape(money(r.value))+'</strong></td>'+
-        '<td>'+(r.delay>0?"+":"")+r.delay+'</td>'+
+        '<td>'+(r.delay===null?"—":(r.delay>0?"+":"")+r.delay)+'</td>'+
         '<td><span class="payments-badge payments-badge--'+status.css+'">'+status.label+'</span></td>'+
         '<td>'+escape(r.seller||"—")+'</td></tr>';
     }).join(""):'<tr><td colspan="10" class="payments-empty">Nenhum pagamento corresponde aos filtros. Ajuste a pesquisa ou importe uma planilha.</td></tr>';
