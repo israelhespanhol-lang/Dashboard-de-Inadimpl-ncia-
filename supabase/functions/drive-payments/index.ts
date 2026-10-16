@@ -1,144 +1,171 @@
-// Fonte única XLSX de pagamentos -> Supabase.
-// Não disponibilize BRIDGE_WEBHOOK_SECRET nem service_role no navegador ou no GitHub.
+
 import ExcelJS from "npm:exceljs@4.4.0";
 import { Buffer } from "node:buffer";
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
 
-const norm = (v: unknown) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-  .trim().toLowerCase().replace(/\s+/g," ");
-const aliases: Record<string,string[]> = {
-  customer_code:["customer","customer code","customer number","codigo pn","codigo do cliente","codigo cliente"],
-  customer_name:["name","nome","nome do cliente","razao social","cliente","customer name"],
-  seller:["seller","vendedor","gestor","sales rep","representante","responsavel"],
-  sap:["sap number","sap","documento sap","n sap","no sap"],
-  invoice:["invoice","invoice number","nota fiscal","nf","numero nf","numero da nf"],
-  issue_date:["invoice date","data de emissao","emissao","issue date"],
-  due_date:["due date","data de vencimento","vencimento","due"],
-  payment_date:["payment date","data de pagamento","data do pagamento","data do pagamento efetivo","pagamento","payment"],
-  paid_amount:["valor recebido","valor pago","valor efetivamente pago","payment amount","amount paid","paid amount"],
-  invoice_amount:["invoice value","valor da nota","valor","amount","invoice amount"],
+const EXPECTED_ID = "1nzFExZ-mz09ygNfYyJZYEEhzMiDtRT7F";
+const EXPECTED_SHA = "5022011aade1192d8a20834993489b93b3a2e13b368ec1bc98def2c487e5c11c";
+const EXPECTED_COUNT = 36175;
+const EXPECTED_CENTS = 139420556835;
+const EXPECTED_SHEET = "HISTORICO PGTOS";
+
+function response(value: unknown, status=200) {return Response.json(value,{status});}
+async function authorized(req: Request) {
+ const expected=Deno.env.get("BRIDGE_WEBHOOK_SECRET")??"";
+ const given=req.headers.get("x-bridge-secret")??"";
+ if(expected.length<32 || given.length<32)return false;
+ const [a,b]=await Promise.all([expected,given].map(s=>crypto.subtle.digest("SHA-256",new TextEncoder().encode(s))));
+ const x=new Uint8Array(a),y=new Uint8Array(b);
+ return x.reduce((v,c,i)=>v|(c^y[i]),0)===0;
+}
+function norm(value:unknown){
+ return String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase().replace(/\s+/g," ");
+}
+function valueOf(cell: ExcelJS.Cell): unknown {
+ const val=cell.value;
+ if(val && typeof val==="object" && !(val instanceof Date)){
+  const o=val as unknown as Record<string,unknown>;
+  if("result" in o)return o.result;
+  if("text" in o)return o.text;
+  if(Array.isArray(o.richText))return o.richText.map(t=>(t as {text?:string}).text??"").join("");
+ }
+ return val;
+}
+function dateOf(x:unknown):string|null {
+ if(x instanceof Date)return Number.isFinite(+x)?x.toISOString().slice(0,10):null;
+ if(typeof x==="number" && x>10000 && x<100000)return new Date(Date.UTC(1899,11,30)+Math.floor(x)*86400000).toISOString().slice(0,10);
+ const s=String(x??"").trim();
+ if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+ const d=s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+ if(!d)return null;
+ const yyyy=+d[3],mm=+d[2],dd=+d[1];
+ const dt=new Date(Date.UTC(yyyy,mm-1,dd));
+ return dt.getUTCFullYear()===yyyy&&dt.getUTCMonth()+1===mm&&dt.getUTCDate()===dd?
+  [d[3],d[2].padStart(2,"0"),d[1].padStart(2,"0")].join("-"):null;
+}
+function currencyOf(x:unknown):number|null{
+ if(typeof x==="number")return Number.isFinite(x)?Math.round(x*100):null;
+ let t=String(x??"").replace(/R\$/gi,"").replace(/\s/g,"");
+ if(!t)return null;
+ if(t.includes(","))t=t.replace(/\./g,"").replace(",",".");
+ const value=Number(t);
+ return Number.isFinite(value)?Math.round(value*100):null;
+}
+type Row = {
+ source_row:number;source_sheet:string;customer_code:string;customer_name:string;seller:string;
+ sap:string;invoice:string;issue_date:string|null;due_date:string;payment_date:string;
+ amount:number;days_delay:number;source_status:string;prazo_pgto:number|null;
 };
-const columns = Object.fromEntries(Object.entries(aliases).flatMap(([key,values])=>values.map(v=>[norm(v),key])));
-function cell(cell: ExcelJS.Cell): unknown {
-  const v: unknown=cell.value;
-  if(v && typeof v==="object" && !(v instanceof Date)){
-    const obj=v as Record<string,unknown>;
-    if("result" in obj)return obj.result;
-    if("text" in obj)return obj.text;
-    if(Array.isArray(obj.richText))return obj.richText.map(x=>(x as {text?:string}).text??"").join("");
-  }
-  return v;
+function parseSheet(book:ExcelJS.Workbook){
+ const sheet=book.getWorksheet(EXPECTED_SHEET);
+ if(!sheet)throw new Error("EXPECTED_SHEET_MISSING");
+ const headers:Record<string,number>={};
+ sheet.getRow(1).eachCell({includeEmpty:false},(c,n)=>{
+  headers[norm(valueOf(c))]=n;
+ });
+ const required=["CUSTOMER ID","NAME","INVOICE NUMBER","INVOICE DATE","DUE DATE","PAYMENT DATE","INVOICE VALUE","PRAZO PGTO","EM DIA/EM ATRASO"];
+ if(required.some(k=>!headers[k]))throw new Error("PAYMENT_HEADER_MISMATCH");
+ const get=(row:ExcelJS.Row,name:string)=>valueOf(row.getCell(headers[name]));
+ const rows:Row[]=[];
+ let totalCents=0,sourceLate=0,sourceOnTime=0,oneDayGrace=0;
+ for(let i=2;i<=sheet.rowCount;i++){
+  const r=sheet.getRow(i),name=String(get(r,"NAME")??"").trim();
+  if(!name)throw new Error("EMPTY_CUSTOMER_IN_ROW_"+i);
+  const due=dateOf(get(r,"DUE DATE"));
+  const paid=dateOf(get(r,"PAYMENT DATE"));
+  const issue=dateOf(get(r,"INVOICE DATE"));
+  const cents=currencyOf(get(r,"INVOICE VALUE"));
+  const originalStatus=norm(get(r,"EM DIA/EM ATRASO"));
+  if(!due||!paid||!issue||cents===null||
+   !["EM DIA","EM ATRASO"].includes(originalStatus))
+    throw new Error("INVALID_PAYMENT_ROW_"+i);
+  const days=Math.round((Date.parse(paid+"T00:00:00Z")-Date.parse(due+"T00:00:00Z"))/86400000);
+  // A planilha original considera pagamentos um dia após o vencimento como EM DIA.
+  // Preservar a classificação da fonte e registrar os dias efetivos separadamente.
+  if((days>1)!==(originalStatus==="EM ATRASO"))
+    throw new Error("PAYMENT_STATUS_MISMATCH_ROW_"+i);
+  if(days===1&&originalStatus==="EM DIA")oneDayGrace++;
+  const term=Number(get(r,"PRAZO PGTO"));
+  rows.push({
+   source_row:i,source_sheet:sheet.name,
+   customer_code:String(get(r,"CUSTOMER ID")??"").trim(),
+   customer_name:name,seller:"",sap:"",
+   invoice:String(get(r,"INVOICE NUMBER")??"").trim(),
+   issue_date:issue,due_date:due,payment_date:paid,
+   amount:cents/100,days_delay:days,source_status:originalStatus,
+   prazo_pgto:Number.isInteger(term)?term:null
+  });
+  totalCents+=cents;
+  if(originalStatus==="EM ATRASO")sourceLate++;else sourceOnTime++;
+ }
+ if(rows.length!==EXPECTED_COUNT||totalCents!==EXPECTED_CENTS)
+  throw new Error("FILE_TOTALS_MISMATCH: rows="+rows.length+" cents="+totalCents);
+ return {rows,totalCents,sourceLate,sourceOnTime,oneDayGrace};
 }
-function isoDate(value:unknown):string|null {
-  if(value instanceof Date)return Number.isNaN(+value)?null:value.toISOString().slice(0,10);
-  if(typeof value==="number" && value>0 && value<100000)
-    return new Date(Date.UTC(1899,11,30)+Math.floor(value)*86400000).toISOString().slice(0,10);
-  const s=String(value??"").trim();
-  if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
-  const d=s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
-  if(!d)return null;
-  const y=+d[3],m=+d[2],day=+d[1],date=new Date(Date.UTC(y,m-1,day));
-  return date.getUTCDate()===day&&date.getUTCMonth()+1===m&&date.getUTCFullYear()===y?
-    [d[3],d[2].padStart(2,"0"),d[1].padStart(2,"0")].join("-"):null;
-}
-function amount(value:unknown):number|null {
-  if(typeof value==="number")return Number.isFinite(value)?Math.round(value*100)/100:null;
-  let v=String(value??"").replace(/R\$/gi,"").replace(/\s/g,"");
-  if(!v)return null;
-  if(v.includes(","))v=v.replace(/\./g,"").replace(",",".");
-  const n=Number(v);return Number.isFinite(n)?Math.round(n*100)/100:null;
-}
-type RecordRow = {
- source_row:number;source_sheet:string;customer_code:string;customer_name:string;
- seller:string;sap:string;invoice:string;issue_date:string|null;
- due_date:string;payment_date:string;amount:number;days_delay:number;
-};
-function parseWorkbook(workbook:ExcelJS.Workbook, sheetOverride:string|null) {
-  const candidates:{sheet:ExcelJS.Worksheet; header:number;indexes:Record<string,number>}[]=[];
-  for(const sheet of workbook.worksheets){
-    for(let rowNum=1;rowNum<=Math.min(30,sheet.rowCount);rowNum++){
-      const found:Record<string,number>={};
-      sheet.getRow(rowNum).eachCell({includeEmpty:false},(c,col)=>{
-        const key=columns[norm(cell(c))];if(key && !found[key])found[key]=col;
-      });
-      if(found.customer_name && found.due_date && found.payment_date && (found.paid_amount || found.invoice_amount)){
-        candidates.push({sheet,header:rowNum,indexes:found});break;
-      }
-    }
-  }
-  if(!candidates.length)throw Error("PAYMENT_COLUMNS_NOT_FOUND: cliente, vencimento, pagamento e valor são necessários.");
-  const selected=sheetOverride?
-    candidates.filter(x=>norm(x.sheet.name)===norm(sheetOverride)):candidates;
-  if(!selected.length)throw Error("SELECTED_PAYMENT_SHEET_NOT_FOUND");
-  if(selected.length>1)throw Error("MULTIPLE_PAYMENT_SHEETS: informe PAYMENTS_SHEET_NAME para evitar duplicatas.");
-  const {sheet,header,indexes}=selected[0];
-  const get=(row:ExcelJS.Row,key:string)=>indexes[key]?cell(row.getCell(indexes[key])):null;
-  const usesInvoice=!indexes.paid_amount;
-  const rows:RecordRow[]=[];
-  let invalid=0;
-  for(let n=header+1;n<=sheet.rowCount;n++){
-    const row=sheet.getRow(n),name=String(get(row,"customer_name")??"").trim();
-    if(!name || /^total( geral)?$/i.test(name))continue;
-    const due=isoDate(get(row,"due_date")),paid=isoDate(get(row,"payment_date"));
-    const val=amount(get(row,usesInvoice?"invoice_amount":"paid_amount"));
-    if(!due||!paid||val===null){invalid++;continue;}
-    const days=Math.round((Date.parse(paid+"T00:00:00Z")-Date.parse(due+"T00:00:00Z"))/86400000);
-    rows.push({source_row:n,source_sheet:sheet.name,
-      customer_code:String(get(row,"customer_code")??"").trim(),
-      customer_name:name,seller:String(get(row,"seller")??"").trim(),
-      sap:String(get(row,"sap")??"").trim(),
-      invoice:String(get(row,"invoice")??"").trim(),
-      issue_date:isoDate(get(row,"issue_date")),
-      due_date:due,payment_date:paid,amount:val,days_delay:days});
-  }
-  if(!rows.length)throw Error("NO_PAYMENT_ROWS_FOUND");
-  if(invalid)throw Error("INVALID_PAYMENT_ROWS: "+invalid+" linhas precisam de revisão. Nenhuma linha foi gravada.");
-  if(rows.length>25000)throw Error("PAYMENT_FILE_TOO_MANY_ROWS: o importador exige carga em blocos acima de 25.000 linhas.");
-  const totalReceived=Math.round(rows.reduce((sum,r)=>sum+r.amount,0)*100)/100;
-  return {rows,summary:{sheet:sheet.name,rowCount:rows.length,totalReceived,
-    warnings:usesInvoice?["VALOR_DA_NOTA_USED_AS_RECEIVED: confirmar se a base contém pagamentos parciais"]:[]}};
-}
-function json(body:unknown,status=200){return Response.json(body,{status});}
-async function authorized(request:Request){
-  const expected=Deno.env.get("BRIDGE_WEBHOOK_SECRET")||"",given=request.headers.get("x-bridge-secret")||"";
-  if(expected.length<32||given.length<32)return false;
-  const encoder=new TextEncoder();
-  const [a,b]=await Promise.all([crypto.subtle.digest("SHA-256",encoder.encode(expected)),
-    crypto.subtle.digest("SHA-256",encoder.encode(given))]);
-  const x=new Uint8Array(a),y=new Uint8Array(b);
-  return x.reduce((n,v,i)=>n|(v^y[i]),0)===0;
-}
-Deno.serve(async request=>{
- if(request.method!=="POST")return json({error:"METHOD_NOT_ALLOWED"},405);
- if(!(await authorized(request)))return json({error:"UNAUTHORIZED"},401);
- try {
-  const payload=await request.json();
-  const mode=payload.mode==="commit"?"commit":"validate";
-  const fileId=String(payload.fileId||"").trim(),fileName=String(payload.fileName||"").trim();
-  const encoded=String(payload.contentBase64||"");
-  if(!fileId || !/\.xlsx$/i.test(fileName) || encoded.length>17_000_000 || !encoded)
-    return json({error:"INVALID_FILE_OR_SIZE: exige XLSX até 12MB"},400);
-  const bytes=Uint8Array.from(atob(encoded),x=>x.charCodeAt(0));
-  if(bytes.byteLength>12_000_000)return json({error:"PAYMENTS_FILE_TOO_LARGE"},413);
-  const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))]
-    .map(x=>x.toString(16).padStart(2,"0")).join("");
+
+Deno.serve(async req=>{
+ if(req.method!=="POST")return response({error:"METHOD_NOT_ALLOWED"},405);
+ if(!(await authorized(req)))return response({error:"UNAUTHORIZED"},401);
+ try{
+  const body=await req.json();
+  const mode=body.mode==="commit"?"commit":"validate";
+  if(body.fileId!==EXPECTED_ID)return response({error:"UNEXPECTED_SOURCE_ID"},400);
+  const filename=String(body.fileName||"");
+  const content=String(body.contentBase64||"");
+  if(!/\.xlsx$/i.test(filename)||content.length<1||content.length>9_000_000)
+    return response({error:"EXPECTED_XLSX_UNDER_6MB"},400);
+  const bytes=Uint8Array.from(atob(content),c=>c.charCodeAt(0));
+  const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)))
+   .map(v=>v.toString(16).padStart(2,"0")).join("");
+  if(hash!==EXPECTED_SHA)return response({error:"SOURCE_HASH_CHANGED_REVALIDATE"},409);
   const workbook=new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(bytes));
-  const {rows,summary}=parseWorkbook(workbook,String(payload.sheetName||"")||null);
-  const response={...summary,fileName,sourceHash:hash};
-  if(mode==="validate")return json({status:"VALIDATED_NO_WRITE",...response});
-  if(Deno.env.get("BRIDGE_WRITE_ENABLED")!=="true" || Deno.env.get("PAYMENTS_WRITE_ENABLED")!=="true")
-    return json({error:"PAYMENT_WRITE_DISABLED",...response},403);
-  if(summary.warnings.length)return json({error:"PAYMENT_AMOUNT_AMBIGUOUS",...response},422);
-  const url=Deno.env.get("SUPABASE_URL"), legacy=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const keys=JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS")||"{}");
-  const key=legacy||keys.default;
-  if(!url||!key)return json({error:"SERVER_CREDENTIALS_MISSING"},503);
+  const parsed=parseSheet(workbook);
+  const preview={fileName:filename,
+   sourceHash:hash,rowCount:parsed.rows.length,totalReceived:parsed.totalCents/100,
+   sourceOnTime:parsed.sourceOnTime,sourceOverdue:parsed.sourceLate,
+   oneDayGraceClassifications:parsed.oneDayGrace,
+   dateRule:"Classificação EM DIA/EM ATRASO preservada da planilha; tolerância observada de 1 dia.",
+   valueRule:"O XLSX contém INVOICE VALUE; é valor da nota nos registros de pagamentos."};
+  if(mode==="validate")return response({status:"VALIDATED_NO_WRITE",...preview});
+  if(Deno.env.get("BRIDGE_WRITE_ENABLED")!=="true")
+   return response({error:"WRITES_DISABLED",...preview},403);
+  const url=Deno.env.get("SUPABASE_URL");
+  const legacy=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  let key=legacy;
+  if(!key){
+   try{const keys=JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS")||"{}");key=keys.default;}catch{}
+  }
+  if(!url||!key)return response({error:"SERVER_CREDENTIALS_NOT_CONFIGURED"},503);
   const client=createClient(url,key,{auth:{persistSession:false}});
-  const {data,error}=await client.rpc("ingest_payment_history",{
-    p_source_key:fileId,p_file_name:fileName,p_sha256:hash,p_rows:rows
+  const source=String(body.fileId);
+  const begin=await client.rpc("begin_payment_history_import",{
+   p_source_key:source,p_file_name:filename,p_sha256:hash,
+   p_expected_count:parsed.rows.length,p_expected_total:(parsed.totalCents/100).toFixed(2)
   });
-  if(error)return json({error:"DATABASE_PAYMENT_IMPORT_FAILED",detail:error.message},409);
-  return json({status:"IMPORTED",...response,database:data});
- }catch(e){return json({error:"PAYMENT_VALIDATION_FAILED",detail:e instanceof Error?e.message:String(e)},422);}
+  if(begin.error)return response({error:"IMPORT_BEGIN_FAILED",detail:begin.error.message},409);
+  if(begin.data?.status==="UNCHANGED")return response({status:"IMPORTED",database:begin.data,...preview});
+  const chunkSize=700;
+  let chunks=0;
+  for(let offset=0;offset<parsed.rows.length;offset+=chunkSize){
+   const part=parsed.rows.slice(offset,offset+chunkSize);
+   const append=await client.rpc("append_payment_history_chunk",{
+     p_source_key:source,p_sha256:hash,p_rows:part
+   });
+   if(append.error)return response({
+    error:"IMPORT_CHUNK_FAILED",detail:append.error.message,atRow:part[0].source_row,
+    stagedRows:offset,canRetry:true
+   },409);
+   chunks++;
+  }
+  const complete=await client.rpc("finish_payment_history_import",{
+    p_source_key:source,p_sha256:hash
+  });
+  if(complete.error)return response({
+    error:"IMPORT_RECONCILIATION_FAILED",detail:complete.error.message,canRetry:true
+  },409);
+  return response({status:"IMPORTED",database:complete.data,chunks,...preview});
+ }catch(err){
+  return response({error:"PAYMENT_WORKBOOK_FAILED",detail:err instanceof Error?err.message:String(err)},422);
+ }
 });
